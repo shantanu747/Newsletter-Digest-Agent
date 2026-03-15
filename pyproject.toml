@@ -1,0 +1,39 @@
+[project]
+name = "newsletter-digest-agent"
+version = "0.1.0"
+description = "AI-powered agent that fetches newsletters from Gmail, summarizes them with Claude, and delivers a daily digest"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "google-api-python-client>=2.150.0",
+    "google-auth>=2.35.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-auth-httplib2>=0.2.0",
+    "beautifulsoup4>=4.12.0",
+    "html2text>=2024.2.26",
+    "APScheduler>=3.10.4",
+    "PyYAML>=6.0.2",
+    "python-dotenv>=1.0.1",
+    "Jinja2>=3.1.4",
+    "structlog>=24.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-mock>=3.14.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests that require real credentials and network access (deselect with '-m not integration')",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent*"]
