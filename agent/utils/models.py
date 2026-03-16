@@ -4,19 +4,33 @@ All pipeline stages communicate exclusively through these types.
 No raw dicts or untyped tuples cross module boundaries.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
 @dataclass(frozen=True)
+class EmailLink:
+    """A content link extracted from a newsletter email."""
+
+    url: str
+    """Destination URL (https only)."""
+
+    title: str
+    """Anchor text of the link, truncated to 60 chars."""
+
+    context: str
+    """Surrounding sentence snippet providing context, up to 120 chars."""
+
+
+@dataclass(frozen=True)
 class Email:
-    """A single newsletter email fetched from Gmail."""
+    """A single newsletter email fetched from Gmail or loaded from an .eml file."""
 
     id: str
-    """Unique Gmail message ID — used for deduplication."""
+    """Unique message ID — used for deduplication."""
 
     source: str
-    """Always 'gmail' in current implementation."""
+    """'gmail' for live fetches, 'eml_file' for local test fixtures."""
 
     sender: str
     """Full sender address, e.g. 'hello@stratechery.com'."""
@@ -33,6 +47,12 @@ class Email:
     plain_text: str | None = None
     """Extracted plain text. None until EmailParser runs; '' if extraction yields nothing."""
 
+    links: tuple[EmailLink, ...] = field(default_factory=tuple)
+    """Article links extracted by EmailParser. Empty tuple until parsing runs."""
+
+    images: tuple[str, ...] = field(default_factory=tuple)
+    """Content image URLs extracted by EmailParser. Empty tuple until parsing runs."""
+
 
 @dataclass(frozen=True)
 class Summary:
@@ -48,7 +68,7 @@ class Summary:
     """Copied from source Email.subject."""
 
     summary_text: str
-    """Generated summary prose. Target: 200-250 words."""
+    """Generated summary prose."""
 
     word_count: int
     """Actual word count of summary_text."""
@@ -66,3 +86,9 @@ class DigestEntry:
 
     original_email_url: str | None = None
     """Optional web-view URL for the original newsletter (from email headers)."""
+
+    links: tuple[EmailLink, ...] = field(default_factory=tuple)
+    """Article links to render in the 'Further Reading' section."""
+
+    images: tuple[str, ...] = field(default_factory=tuple)
+    """Content image URLs to render inline in the digest."""

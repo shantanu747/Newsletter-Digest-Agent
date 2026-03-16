@@ -36,6 +36,10 @@ class AgentConfiguration:
 
     # Summarization
     summary_word_target: int = 225
+    summary_length_mode: str = "fixed"   # "fixed" | "percentage"
+    summary_percentage: int = 18
+    summary_min_words: int = 100
+    summary_max_words: int = 500
 
     # Schedule
     schedule_hour: int = 6
@@ -75,6 +79,10 @@ def load_config(yaml_path: str = "config/newsletters.yaml") -> AgentConfiguratio
         lookback_hours=int(raw.get("lookback_hours", 24)),
         max_newsletters_per_run=int(raw.get("max_newsletters_per_run", 20)),
         summary_word_target=int(raw.get("summary_word_target", 225)),
+        summary_length_mode=str(raw.get("summary_length_mode", "fixed")),
+        summary_percentage=int(raw.get("summary_percentage", 18)),
+        summary_min_words=int(raw.get("summary_min_words", 100)),
+        summary_max_words=int(raw.get("summary_max_words", 500)),
         schedule_hour=int(schedule.get("hour", 6)),
         schedule_minute=int(schedule.get("minute", 30)),
         schedule_timezone=str(schedule.get("timezone", "UTC")),
