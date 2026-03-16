@@ -14,29 +14,44 @@ from agent.utils.logger import get_logger
 from agent.utils.models import Email, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
-_SYSTEM_PROMPT = (
+_SYSTEM_PROMPT_TEMPLATE = (
     "You are a newsletter summarizer. Given a newsletter's text content, produce a "
-    "concise summary of 200–250 words. Preserve the author's tone. Highlight the 3–5 "
-    "most important points. Do not include greetings, unsubscribe text, or navigation "
-    "labels."
+    "concise summary of approximately {target} words. Preserve the author's tone. "
+    "Highlight the 3–5 most important points. Do not include greetings, unsubscribe "
+    "text, or navigation labels."
 )
 
 
 class ClaudeSummarizer:
     """Summarizes newsletter emails using the Claude claude-sonnet-4-6 model."""
 
-    def __init__(self, api_key: str) -> None:
-        """Initialise the summarizer with an Anthropic API key.
-
-        Args:
-            api_key: Anthropic API key used to authenticate requests.
-        """
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        summary_length_mode: str = "fixed",
+        summary_word_target: int = 225,
+        summary_percentage: int = 18,
+        summary_min_words: int = 100,
+        summary_max_words: int = 500,
+    ) -> None:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._log = get_logger(__name__)
         self._limiter = TokenBucketLimiter(rate=0.5, capacity=1)
+        self._mode = summary_length_mode
+        self._word_target = summary_word_target
+        self._percentage = summary_percentage
+        self._min_words = summary_min_words
+        self._max_words = summary_max_words
+
+    def _compute_target(self, email: Email) -> int:
+        if self._mode == "percentage":
+            wc = len((email.plain_text or "").split())
+            return max(self._min_words, min(self._max_words, int(wc * self._percentage / 100)))
+        return self._word_target
 
     def summarize(self, email: Email) -> Summary:
-        """Generate a 200–250 word summary for *email*.
+        """Generate a summary for *email* (word count determined by length mode).
 
         Retries up to 3 times (with exponential back-off) on ``anthropic.APIError``
         and ``anthropic.RateLimitError``.  Raises ``SummarizationError`` when all
@@ -52,6 +67,8 @@ class ClaudeSummarizer:
         Raises:
             SummarizationError: If all 3 attempts fail.
         """
+        target = self._compute_target(email)
+        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(target=target)
         user_content = (
             f"Summarize the following newsletter:\n---\n"
             f"{email.plain_text or email.raw_html[:8000]}\n---"
@@ -64,7 +81,7 @@ class ClaudeSummarizer:
                 response = self._client.messages.create(
                     model="claude-sonnet-4-6",
                     max_tokens=1024,
-                    system=_SYSTEM_PROMPT,
+                    system=system_prompt,
                     messages=[{"role": "user", "content": user_content}],
                 )
                 text = response.content[0].text.strip()

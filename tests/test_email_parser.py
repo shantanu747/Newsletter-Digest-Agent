@@ -368,3 +368,115 @@ class TestReturnType:
         assert sample_email.plain_text is None
         result = _parse(sample_email)
         assert result.plain_text is not None
+
+
+# ---------------------------------------------------------------------------
+# 7. Link extraction
+# ---------------------------------------------------------------------------
+
+class TestLinkExtraction:
+
+    def test_content_link_is_kept(self):
+        """A regular article link with meaningful anchor text is extracted."""
+        html = (
+            "<html><body>"
+            "<p>Check out <a href='https://example.com/article'>This Week in AI</a> for more details.</p>"
+            "</body></html>"
+        )
+        result = _parse(_make_email(raw_html=html))
+        assert len(result.links) == 1
+        assert result.links[0].url == "https://example.com/article"
+        assert result.links[0].title == "This Week in AI"
+
+    def test_unsubscribe_link_is_excluded(self):
+        """Links with 'unsubscribe' in anchor text are discarded."""
+        html = (
+            "<html><body>"
+            "<p>Good content here.</p>"
+            "<a href='https://example.com/unsub'>Unsubscribe from this list</a>"
+            "</body></html>"
+        )
+        result = _parse(_make_email(raw_html=html))
+        assert all("unsub" not in lnk.url for lnk in result.links)
+        assert all("unsubscribe" not in lnk.title.lower() for lnk in result.links)
+
+    def test_mailto_link_is_excluded(self):
+        """mailto: links are not included (must be https://)."""
+        html = (
+            "<html><body>"
+            "<p>Contact us via <a href='mailto:hello@example.com'>email</a>.</p>"
+            "</body></html>"
+        )
+        result = _parse(_make_email(raw_html=html))
+        assert len(result.links) == 0
+
+    def test_link_context_is_populated(self):
+        """EmailLink.context contains the surrounding element text."""
+        html = (
+            "<html><body>"
+            "<p>This article about <a href='https://example.com/ai'>deep learning breakthroughs</a> is fascinating.</p>"
+            "</body></html>"
+        )
+        result = _parse(_make_email(raw_html=html))
+        assert len(result.links) == 1
+        assert len(result.links[0].context) > 0
+
+    def test_plain_text_email_has_empty_links(self):
+        """An email with no HTML yields an empty links tuple."""
+        result = _parse(_make_email(raw_html="", plain_text="No HTML here."))
+        assert result.links == ()
+
+    def test_links_is_a_tuple(self):
+        """The links field is always a tuple (not a list)."""
+        html = "<html><body><p>Read <a href='https://example.com/post'>the post</a>.</p></body></html>"
+        result = _parse(_make_email(raw_html=html))
+        assert isinstance(result.links, tuple)
+
+
+# ---------------------------------------------------------------------------
+# 8. Image extraction
+# ---------------------------------------------------------------------------
+
+class TestImageExtraction:
+
+    def test_tracking_pixel_is_excluded(self):
+        """1×1 tracking pixels are never included in images."""
+        html = (
+            "<html><body>"
+            "<p>Content.</p>"
+            '<img src="https://track.example.com/open.gif" width="1" height="1">'
+            "</body></html>"
+        )
+        result = _parse(_make_email(raw_html=html))
+        assert "track.example.com" not in " ".join(result.images)
+
+    def test_content_cdn_image_is_kept(self):
+        """Images from a trusted CDN (substackcdn.com) are included."""
+        html = (
+            "<html><body>"
+            '<img src="https://substackcdn.com/image/fetch/hero.jpg" width="600">'
+            "</body></html>"
+        )
+        result = _parse(_make_email(raw_html=html))
+        assert any("substackcdn.com" in img for img in result.images)
+
+    def test_data_uri_is_excluded(self):
+        """data: URIs are not HTTPS and must be excluded."""
+        html = (
+            "<html><body>"
+            '<img src="data:image/png;base64,abc123" width="600">'
+            "</body></html>"
+        )
+        result = _parse(_make_email(raw_html=html))
+        assert len(result.images) == 0
+
+    def test_images_is_a_tuple(self):
+        """The images field is always a tuple (not a list)."""
+        html = "<html><body><p>No images here.</p></body></html>"
+        result = _parse(_make_email(raw_html=html))
+        assert isinstance(result.images, tuple)
+
+    def test_plain_text_email_has_empty_images(self):
+        """An email with no HTML yields an empty images tuple."""
+        result = _parse(_make_email(raw_html="", plain_text="No HTML."))
+        assert result.images == ()

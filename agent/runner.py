@@ -34,7 +34,14 @@ class NewsletterAgent:
         self.dry_run = dry_run
         self._fetcher = GmailFetcher()
         self._parser = EmailParser()
-        self._summarizer = ClaudeSummarizer(api_key=config.anthropic_api_key)
+        self._summarizer = ClaudeSummarizer(
+            api_key=config.anthropic_api_key,
+            summary_length_mode=config.summary_length_mode,
+            summary_word_target=config.summary_word_target,
+            summary_percentage=config.summary_percentage,
+            summary_min_words=config.summary_min_words,
+            summary_max_words=config.summary_max_words,
+        )
         self._builder = DigestBuilder()
         self._delivery = EmailDelivery()
 
@@ -69,7 +76,7 @@ class NewsletterAgent:
             parsed = self._parser.parse(email)
             try:
                 summary = self._summarizer.summarize(parsed)
-                entries.append(DigestEntry(summary=summary))
+                entries.append(DigestEntry(summary=summary, links=parsed.links, images=parsed.images))
                 log.info("newsletter_processed", message_id=email.id, sender=email.sender, word_count=summary.word_count)
             except SummarizationError as exc:
                 log.warning("newsletter_summarization_failed", message_id=email.id, subject=email.subject, error=str(exc))
