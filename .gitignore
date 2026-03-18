@@ -1,0 +1,70 @@
+# === Secrets & credentials ===
+.env
+token.json
+credentials.json
+client_secret*.json
+*_credentials.json
+service_account*.json
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+wheels/
+
+# === Virtual environments ===
+.venv/
+venv/
+env/
+ENV/
+.env.bak
+
+# === Testing & coverage ===
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# === Type checking ===
+.mypy_cache/
+.dmypy.json
+.pytype/
+
+# === IDEs ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# === Logs ===
+*.log
+logs/
+
+# === Misc ===
+*.bak
+*.tmp
+
+# === Local examples & test data ===
+eml_examples/

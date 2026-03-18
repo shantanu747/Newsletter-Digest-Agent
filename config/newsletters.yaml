@@ -1,0 +1,38 @@
+# ============================================================
+# Newsletter Digest Agent — Configuration
+# Non-secret settings only. Secrets go in .env
+# ============================================================
+
+# Sender email addresses to always include (exact match, case-insensitive)
+senders:
+  - "newsletter@morningbrew.com"
+  - "digest@tldr.tech"
+  - "hello@stratechery.com"
+
+# Subject line keywords — include any email whose subject contains one of these
+# (case-insensitive substring match, for senders not on the allowlist above)
+subject_keywords:
+  - "daily digest"
+  - "weekly roundup"
+  - "newsletter"
+
+# How many hours back to search for newsletters (default: 24)
+lookback_hours: 24
+
+# Hard cap on newsletters processed per run to avoid runaway API usage (default: 20)
+max_newsletters_per_run: 20
+
+# Target word count for each AI-generated summary (default: 225)
+summary_word_target: 225
+
+# Summary length mode: "fixed" uses summary_word_target; "percentage" scales by source length
+summary_length_mode: "percentage"  # "fixed" | "percentage"
+summary_percentage: 18             # % of source word count (used when mode=percentage)
+summary_min_words: 100             # floor for percentage mode
+summary_max_words: 500             # ceiling for percentage mode
+
+# Scheduler settings (used by: python -m agent.scheduler)
+schedule:
+  hour: 6          # 0-23
+  minute: 30       # 0-59
+  timezone: "America/New_York"  # IANA timezone string
