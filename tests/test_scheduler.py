@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from agent.scheduler import DigestScheduler
+from agent.utils.exceptions import FetchError
 from apscheduler.triggers.cron import CronTrigger
 
 
@@ -54,23 +55,31 @@ class TestDigestScheduler:
         call_kwargs = mock_scheduler.add_job.call_args[1]
         assert call_kwargs.get("misfire_grace_time") == 600
 
-    def test_run_agent_catches_exceptions(self, mock_config, mocker):
-        # Patch NewsletterAgent.run to raise an exception
-        mocker.patch("agent.runner.NewsletterAgent.run", side_effect=Exception("boom"))
+    def test_run_agent_catches_pipeline_exceptions(self, mock_config, mocker):
+        """Known pipeline errors (FetchError etc.) are swallowed so the scheduler survives."""
+        mocker.patch("agent.runner.NewsletterAgent.run", side_effect=FetchError("fetch failed"))
 
         scheduler = DigestScheduler(mock_config)
-        # Should not raise — the scheduler must survive job failures
+        # Should not raise — the scheduler must survive known pipeline failures
         scheduler._run_agent()
 
-    def test_run_agent_logs_error_on_exception(self, mock_config, mocker):
-        mocker.patch("agent.runner.NewsletterAgent.run", side_effect=Exception("boom"))
+    def test_run_agent_propagates_unexpected_exceptions(self, mock_config, mocker):
+        """Unexpected errors (e.g. programming bugs) must propagate, not be silently swallowed."""
+        mocker.patch("agent.runner.NewsletterAgent.run", side_effect=RuntimeError("bug"))
+
+        scheduler = DigestScheduler(mock_config)
+        with pytest.raises(RuntimeError, match="bug"):
+            scheduler._run_agent()
+
+    def test_run_agent_logs_error_on_pipeline_exception(self, mock_config, mocker):
+        mocker.patch("agent.runner.NewsletterAgent.run", side_effect=FetchError("fetch failed"))
         mock_log = mocker.patch("agent.scheduler.log")
 
         scheduler = DigestScheduler(mock_config)
         scheduler._run_agent()
 
         mock_log.error.assert_called_once_with(
-            "scheduled_run_failed", error="boom"
+            "scheduled_run_failed", error="fetch failed"
         )
 
     def test_run_agent_logs_start_on_success(self, mock_config, mocker):

@@ -163,6 +163,11 @@ class TestGmailFetcherFetchNewsletters:
         messages: list[dict],
     ) -> list[Email]:
         """Patch credentials + build, instantiate fetcher, and call fetch_newsletters."""
+        # Simulate a token file with secure permissions (owner-read/write only).
+        mock_stat = MagicMock()
+        mock_stat.st_mode = 0o100600  # regular file, mode 600
+        mocker.patch("agent.fetchers.gmail_fetcher.os.stat", return_value=mock_stat)
+
         mock_creds = MagicMock()
         mocker.patch(
             "google.oauth2.credentials.Credentials.from_authorized_user_file",
@@ -310,6 +315,9 @@ class TestGmailFetcherFetchNewsletters:
 
     def test_credentials_loaded_from_token_path(self, mocker, mock_config):
         """Credentials.from_authorized_user_file is called with the configured token path."""
+        mock_stat = MagicMock()
+        mock_stat.st_mode = 0o100600
+        mocker.patch("agent.fetchers.gmail_fetcher.os.stat", return_value=mock_stat)
         mock_creds = MagicMock()
         creds_patch = mocker.patch(
             "google.oauth2.credentials.Credentials.from_authorized_user_file",
@@ -327,6 +335,9 @@ class TestGmailFetcherFetchNewsletters:
 
     def test_gmail_service_built_with_correct_args(self, mocker, mock_config):
         """googleapiclient.discovery.build is called with 'gmail' and 'v1'."""
+        mock_stat = MagicMock()
+        mock_stat.st_mode = 0o100600
+        mocker.patch("agent.fetchers.gmail_fetcher.os.stat", return_value=mock_stat)
         mock_creds = MagicMock()
         mocker.patch(
             "google.oauth2.credentials.Credentials.from_authorized_user_file",
@@ -386,6 +397,9 @@ class TestGmailFetcherFetchNewsletters:
 
     def test_list_query_contains_after_timestamp(self, mocker, mock_config):
         """The Gmail list() call includes an 'after:' epoch filter."""
+        mock_stat = MagicMock()
+        mock_stat.st_mode = 0o100600
+        mocker.patch("agent.fetchers.gmail_fetcher.os.stat", return_value=mock_stat)
         mock_creds = MagicMock()
         mocker.patch(
             "google.oauth2.credentials.Credentials.from_authorized_user_file",
@@ -425,6 +439,10 @@ class TestKeywordDetection:
         messages: list[dict],
     ) -> list[Email]:
         """Patch credentials + build, instantiate fetcher, and call fetch_newsletters."""
+        mock_stat = MagicMock()
+        mock_stat.st_mode = 0o100600  # regular file, mode 600
+        mocker.patch("agent.fetchers.gmail_fetcher.os.stat", return_value=mock_stat)
+
         mock_creds = MagicMock()
         mocker.patch(
             "google.oauth2.credentials.Credentials.from_authorized_user_file",
