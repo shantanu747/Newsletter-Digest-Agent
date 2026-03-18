@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import email.utils
+import os
+import stat
 from datetime import datetime, timedelta, timezone
 
 import google.auth.transport.requests
@@ -41,6 +43,20 @@ class GmailFetcher(BaseFetcher):
             FetchError: Wraps any googleapiclient.errors.HttpError.
         """
         token_path = self._token_path or config.gmail_token_path
+
+        # Refuse to load a token file that is readable by group or others — OAuth
+        # refresh tokens must be kept private (owner-only: mode 600).
+        try:
+            file_mode = os.stat(token_path).st_mode
+            if file_mode & (stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH):
+                raise FetchError(
+                    f"Insecure permissions on {token_path} — run: chmod 600 {token_path}"
+                )
+        except FileNotFoundError:
+            raise FetchError(
+                f"Gmail token file not found: {token_path}. "
+                "Run scripts/gmail_auth.py to authenticate."
+            )
 
         try:
             creds = google.oauth2.credentials.Credentials.from_authorized_user_file(

@@ -88,19 +88,25 @@ def load_config(yaml_path: str = "config/newsletters.yaml") -> AgentConfiguratio
         schedule_timezone=str(schedule.get("timezone", "UTC")),
     )
 
-    # Validate required env vars
-    missing = [key for key in _REQUIRED_ENV if not os.getenv(key)]
+    # Validate required env vars — treat blank strings the same as missing
+    missing = [key for key in _REQUIRED_ENV if not (os.getenv(key) or "").strip()]
     if missing:
         raise ConfigurationError(
-            f"Missing required environment variable(s): {', '.join(missing)}. "
+            f"Missing or empty environment variable(s): {', '.join(missing)}. "
             "Copy .env.example to .env and fill in all values."
+        )
+
+    smtp_port = int(os.environ["SMTP_PORT"])
+    if not 1 <= smtp_port <= 65535:
+        raise ConfigurationError(
+            f"SMTP_PORT must be between 1 and 65535, got {smtp_port}"
         )
 
     cfg.anthropic_api_key = os.environ["ANTHROPIC_API_KEY"]
     cfg.gmail_token_path = os.environ["GMAIL_OAUTH_TOKEN_PATH"]
     cfg.delivery_recipient = os.environ["DELIVERY_EMAIL"]
     cfg.smtp_host = os.environ["SMTP_HOST"]
-    cfg.smtp_port = int(os.environ["SMTP_PORT"])
+    cfg.smtp_port = smtp_port
     cfg.smtp_user = os.environ["SMTP_USER"]
     cfg.smtp_password = os.environ["SMTP_PASSWORD"]
 

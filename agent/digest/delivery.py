@@ -56,6 +56,12 @@ class EmailDelivery:
                     server.sendmail(cfg.smtp_user, cfg.delivery_recipient, msg.as_string())
                 log.info("digest_delivered", recipient=cfg.delivery_recipient, attempt=attempt + 1)
                 return
+            except smtplib.SMTPAuthenticationError:
+                # Do NOT log the exception message — it can contain credentials or
+                # server challenge responses that expose secrets.
+                raise DeliveryError(
+                    "SMTP authentication failed — check SMTP_USER and SMTP_PASSWORD in .env"
+                )
             except smtplib.SMTPException as exc:
                 log.warning("smtp_error", attempt=attempt + 1, error=str(exc))
 

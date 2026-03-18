@@ -7,7 +7,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from agent.utils.config import AgentConfiguration, load_config
-from agent.utils.exceptions import ConfigurationError
+from agent.utils.exceptions import ConfigurationError, DeliveryError, FetchError, SummarizationError
 from agent.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -21,13 +21,14 @@ class DigestScheduler:
         self._scheduler = BlockingScheduler(timezone=config.schedule_timezone)
 
     def _run_agent(self) -> None:
-        """Job function — run the agent and catch all exceptions so the scheduler survives."""
+        """Job function — catch known pipeline errors so the scheduler survives transient
+        failures, but let unexpected exceptions propagate so bugs are not silently swallowed."""
         # Import here to avoid circular imports at module load time
         from agent.runner import NewsletterAgent
         try:
             log.info("scheduled_run_started")
             NewsletterAgent(config=self.config).run()
-        except Exception as exc:
+        except (FetchError, SummarizationError, DeliveryError) as exc:
             log.error("scheduled_run_failed", error=str(exc))
 
     def start(self) -> None:

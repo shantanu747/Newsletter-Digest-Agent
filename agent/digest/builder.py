@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import markupsafe
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,20 @@ from agent.utils.logger import get_logger
 from agent.utils.models import DigestEntry
 
 log = get_logger(__name__)
+
+# Only these URL schemes are permitted in href/src attributes.
+_SAFE_URL_SCHEMES = ("https://",)
+
+
+def _nl2br(value: str) -> markupsafe.Markup:
+    """Jinja2 filter: escape *value* then replace newlines with <br> tags."""
+    escaped = markupsafe.escape(value)
+    return markupsafe.Markup(escaped.replace("\n", markupsafe.Markup("<br>\n")))
+
+
+def _safe_url(url: str) -> str:
+    """Return *url* only if it starts with an allowed scheme, else ''."""
+    return url if any(url.startswith(s) for s in _SAFE_URL_SCHEMES) else ""
 
 
 class DigestBuilder:
@@ -44,6 +59,8 @@ class DigestBuilder:
             ),
             autoescape=True,
         )
+        env.filters["nl2br"] = _nl2br
+        env.filters["safe_url"] = _safe_url
 
         template = env.get_template("digest.html.j2")
 
