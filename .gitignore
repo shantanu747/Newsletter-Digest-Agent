@@ -68,3 +68,6 @@ logs/
 
 # === Local examples & test data ===
 eml_examples/
+
+# === Moonshot Vision Documents ===
+Moonshot/

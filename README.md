@@ -88,6 +88,44 @@ Reading newsletters takes time. This agent solves that by running on a daily sch
 
 ---
 
+## ⚠️ Migration Notice (v2 — Breaking Changes)
+
+If you are upgrading from the previous version, two breaking changes require manual action before running:
+
+### 1. Re-authenticate Gmail (required)
+
+The agent now uses `gmail.modify` scope instead of `gmail.readonly` in order to mark emails as read and move them to trash after delivery. Your existing `token.json` will be rejected for write operations.
+
+```bash
+rm token.json
+python scripts/gmail_auth.py
+```
+
+Follow the browser prompt to grant the updated permission.
+
+### 2. Migrate `config/newsletters.yaml` (required)
+
+The `senders` field changed from a flat list of strings to a list of per-sender objects.
+
+```yaml
+# OLD format (v1 — no longer valid):
+senders:
+  - "newsletter@morningbrew.com"
+lookback_hours: 24
+
+# NEW format (v2):
+poll_interval_hours: 4
+batch_size: 10
+senders:
+  - address: "newsletter@morningbrew.com"
+    display_name: "Morning Brew"
+    mode: summarize          # or: pass_through
+```
+
+The `lookback_hours` field is removed. The agent now fetches all unread emails from configured senders regardless of age.
+
+---
+
 ## Setup
 
 ### 1. Clone the repository
