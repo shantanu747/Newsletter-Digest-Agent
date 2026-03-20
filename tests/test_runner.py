@@ -41,7 +41,7 @@ class TestDryRun:
             for i in range(3)
         ]
         mocker.patch("agent.runner.GmailFetcher.fetch_newsletters", return_value=emails)
-        mocker.patch("agent.runner.EmailParser.parse", side_effect=lambda e: e)
+        mocker.patch("agent.runner.EmailParser.parse", side_effect=lambda e, sender_config=None: e)
         mocker.patch("agent.runner.ClaudeSummarizer.summarize", side_effect=SummarizationError("fail"))
         mocker.patch("agent.runner.DigestBuilder.build", return_value="<html></html>")
         mocker.patch("agent.runner.EmailDelivery.send")
@@ -75,7 +75,7 @@ class TestDryRun:
                   received_at=datetime(2026,3,9,7,0,tzinfo=timezone.utc), raw_html="x", plain_text="x"),
         ]
         mocker.patch("agent.runner.GmailFetcher.fetch_newsletters", return_value=emails)
-        mocker.patch("agent.runner.EmailParser.parse", side_effect=lambda e: e)
+        mocker.patch("agent.runner.EmailParser.parse", side_effect=lambda e, sender_config=None: e)
         summarize_calls = []
         mock_summary = Summary(
             email_id="x", sender="x", subject="x",

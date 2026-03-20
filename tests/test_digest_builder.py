@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.utils.models import DigestEntry, Email, Summary
+from agent.utils.models import DigestBatch, DigestEntry, Email, Summary
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +41,15 @@ def _make_entry(
     summary_text: str,
 ) -> DigestEntry:
     return DigestEntry(summary=_make_summary(email_id, sender, subject, summary_text))
+
+
+def _make_batch(entries: list[DigestEntry], batch_index: int = 0, total_batches: int = 1) -> DigestBatch:
+    return DigestBatch(
+        batch_index=batch_index,
+        entries=entries,
+        gmail_message_ids=[],
+        total_batches=total_batches,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +94,6 @@ class TestDigestBuilderMultipleEntries:
 
     def test_html_contains_all_senders(self, mocker, three_entries, run_date):
         """Built HTML includes every sender address."""
-        # Build predictable HTML from the real or mocked template
         rendered_html = _fake_render(three_entries, run_date=run_date)
         mock_template = MagicMock()
         mock_template.render.return_value = rendered_html
@@ -95,7 +103,7 @@ class TestDigestBuilderMultipleEntries:
 
         builder = DigestBuilder()
         html = builder.build(
-            entries=three_entries,
+            batch=_make_batch(three_entries),
             run_date=run_date,
             total_summarized=3,
             failed_subjects=[],
@@ -116,7 +124,7 @@ class TestDigestBuilderMultipleEntries:
 
         builder = DigestBuilder()
         html = builder.build(
-            entries=three_entries,
+            batch=_make_batch(three_entries),
             run_date=run_date,
             total_summarized=3,
             failed_subjects=[],
@@ -137,7 +145,7 @@ class TestDigestBuilderMultipleEntries:
 
         builder = DigestBuilder()
         html = builder.build(
-            entries=three_entries,
+            batch=_make_batch(three_entries),
             run_date=run_date,
             total_summarized=3,
             failed_subjects=[],
@@ -158,7 +166,7 @@ class TestDigestBuilderMultipleEntries:
 
         builder = DigestBuilder()
         result = builder.build(
-            entries=three_entries,
+            batch=_make_batch(three_entries),
             run_date=run_date,
             total_summarized=3,
             failed_subjects=[],
@@ -182,7 +190,7 @@ class TestDigestBuilderFailedSubjects:
 
         builder = DigestBuilder()
         html = builder.build(
-            entries=[],
+            batch=_make_batch([]),
             run_date=run_date,
             total_summarized=0,
             failed_subjects=failed,
@@ -202,7 +210,7 @@ class TestDigestBuilderFailedSubjects:
 
         builder = DigestBuilder()
         html = builder.build(
-            entries=[],
+            batch=_make_batch([]),
             run_date=run_date,
             total_summarized=0,
             failed_subjects=failed,
@@ -226,9 +234,8 @@ class TestDigestBuilderEmptyEntries:
         from agent.digest.builder import DigestBuilder
 
         builder = DigestBuilder()
-        # Should not raise
         html = builder.build(
-            entries=[],
+            batch=_make_batch([]),
             run_date=run_date,
             total_summarized=0,
             failed_subjects=[],
@@ -248,21 +255,18 @@ class TestDigestBuilderEmptyEntries:
 
         builder = DigestBuilder()
         html = builder.build(
-            entries=[],
+            batch=_make_batch([]),
             run_date=run_date,
             total_summarized=0,
             failed_subjects=[],
         )
 
-        # The year, month, and day from the run_date should appear somewhere
         assert "2026" in html
         assert "March" in html or "03" in html or "2026-03-09" in html
 
 
 # ---------------------------------------------------------------------------
 # Internal test-only render helper
-# Produces deterministic HTML from the same data that the template would receive,
-# allowing assertions that are independent of the actual Jinja2 template layout.
 # ---------------------------------------------------------------------------
 
 def _fake_render(
@@ -277,7 +281,7 @@ def _fake_render(
     ]
     for entry in entries:
         s = entry.summary
-        parts.append(f"<div class='entry'>")
+        parts.append("<div class='entry'>")
         parts.append(f"<p class='sender'>{s.sender}</p>")
         parts.append(f"<h2>{s.subject}</h2>")
         parts.append(f"<p>{s.summary_text}</p>")

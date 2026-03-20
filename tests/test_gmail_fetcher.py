@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent.utils.config import AgentConfiguration
-from agent.utils.models import Email
+from agent.utils.models import Email, SenderConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,9 +102,8 @@ HTML_BODY = "<html><body><h1>Top Stories</h1><p>Great content here.</p></body></
 def mock_config() -> AgentConfiguration:
     """AgentConfiguration with a single allowed sender."""
     cfg = AgentConfiguration(
-        senders=[ALLOWED_SENDER],
+        senders=[SenderConfig(address=ALLOWED_SENDER, mode="summarize")],
         subject_keywords=["daily digest"],
-        lookback_hours=24,
         max_newsletters_per_run=20,
         summary_word_target=225,
     )
@@ -396,7 +395,7 @@ class TestGmailFetcherFetchNewsletters:
     # ------------------------------------------------------------------
 
     def test_list_query_contains_after_timestamp(self, mocker, mock_config):
-        """The Gmail list() call includes an 'after:' epoch filter."""
+        """The Gmail list() call targets unread inbox messages."""
         mock_stat = MagicMock()
         mock_stat.st_mode = 0o100600
         mocker.patch("agent.fetchers.gmail_fetcher.os.stat", return_value=mock_stat)
@@ -417,7 +416,7 @@ class TestGmailFetcherFetchNewsletters:
         list_mock.assert_called_once()
         call_kwargs = list_mock.call_args.kwargs
         assert "q" in call_kwargs
-        assert "after:" in call_kwargs["q"]
+        assert "is:unread" in call_kwargs["q"]
 
 
 # ---------------------------------------------------------------------------

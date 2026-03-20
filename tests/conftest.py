@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from agent.utils.config import AgentConfiguration
-from agent.utils.models import DigestEntry, Email, Summary
+from agent.utils.models import DigestEntry, Email, SenderConfig, Summary
 
 
 @pytest.fixture
@@ -56,13 +56,11 @@ def sample_digest_entry(sample_summary: Summary) -> DigestEntry:
 @pytest.fixture
 def mock_config() -> AgentConfiguration:
     cfg = AgentConfiguration(
-        senders=["newsletter@example.com"],
+        senders=[SenderConfig(address="newsletter@example.com", mode="summarize")],
         subject_keywords=["daily digest"],
-        lookback_hours=24,
-        max_newsletters_per_run=20,
+        batch_size=10,
+        poll_interval_hours=4,
         summary_word_target=225,
-        schedule_hour=6,
-        schedule_minute=30,
         schedule_timezone="UTC",
     )
     cfg.anthropic_api_key = "test-anthropic-key"
