@@ -1,6 +1,7 @@
 """ClaudeSummarizer — wraps Anthropic Messages API to summarize newsletter emails.
 
 Implements exponential-backoff retry logic on transient API and rate-limit errors.
+For pass_through emails, bypasses Claude entirely and wraps the pre-processed text.
 """
 
 import random
@@ -51,11 +52,14 @@ class ClaudeSummarizer:
         return self._word_target
 
     def summarize(self, email: Email) -> Summary:
-        """Generate a summary for *email* (word count determined by length mode).
+        """Generate a summary for *email*.
 
-        Retries up to 3 times (with exponential back-off) on ``anthropic.APIError``
-        and ``anthropic.RateLimitError``.  Raises ``SummarizationError`` when all
-        attempts are exhausted.
+        For pass_through emails (email.is_pass_through=True), skips the Claude API
+        and returns a Summary wrapping the pre-processed plain_text directly.
+
+        For normal emails, retries up to 3 times (with exponential back-off) on
+        ``anthropic.APIError`` and ``anthropic.RateLimitError``. Raises
+        ``SummarizationError`` when all attempts are exhausted.
 
         Args:
             email: The newsletter email to summarise.
@@ -65,8 +69,27 @@ class ClaudeSummarizer:
             generated text and metadata.
 
         Raises:
-            SummarizationError: If all 3 attempts fail.
+            SummarizationError: If all 3 attempts fail (summarize mode only).
         """
+        # Pass-through bypass: skip Claude API entirely
+        if email.is_pass_through:
+            text = (email.plain_text or "").strip()
+            word_count = len(text.split())
+            self._log.info(
+                "newsletter_pass_through",
+                message_id=email.id,
+                word_count=word_count,
+            )
+            return Summary(
+                email_id=email.id,
+                sender=email.sender,
+                subject=email.subject,
+                summary_text=text,
+                word_count=word_count,
+                generated_at=datetime.now(timezone.utc),
+            )
+
+        # Standard summarization path
         target = self._compute_target(email)
         system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(target=target)
         user_content = (

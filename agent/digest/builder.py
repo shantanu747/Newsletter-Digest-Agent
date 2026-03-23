@@ -1,4 +1,4 @@
-"""Assembles the HTML digest from a list of DigestEntry objects using a Jinja2 template."""
+"""Assembles the HTML digest from a DigestBatch using a Jinja2 template."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import jinja2
 
 from agent.utils.logger import get_logger
-from agent.utils.models import DigestEntry
+from agent.utils.models import DigestBatch, DigestEntry
 
 log = get_logger(__name__)
 
@@ -29,11 +29,11 @@ def _safe_url(url: str) -> str:
 
 
 class DigestBuilder:
-    """Renders a list of DigestEntry objects into an HTML digest string."""
+    """Renders a DigestBatch into an HTML digest string."""
 
     def build(
         self,
-        entries: list[DigestEntry],
+        batch: DigestBatch,
         run_date: datetime,
         total_found: int = 0,
         total_summarized: int | None = None,
@@ -42,16 +42,17 @@ class DigestBuilder:
         """Render the digest template and return the resulting HTML string.
 
         Args:
-            entries: Ordered list of DigestEntry objects to include in the digest.
+            batch: The DigestBatch containing entries and batch metadata.
             run_date: The datetime representing when this digest run was triggered.
-            total_found: Total number of newsletters found before summarization filtering.
+            total_found: Total number of newsletters found before filtering.
+            total_summarized: Override for total summarized count (defaults to len(batch.entries)).
             failed_subjects: Subject lines of newsletters that could not be summarized.
 
         Returns:
             Rendered HTML string ready for delivery.
         """
         failed_subjects = failed_subjects or []
-        _total_summarized = total_summarized if total_summarized is not None else len(entries)
+        _total_summarized = total_summarized if total_summarized is not None else len(batch.entries)
 
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(
@@ -66,13 +67,16 @@ class DigestBuilder:
 
         log.info(
             "digest_rendered",
+            batch_index=batch.batch_index + 1,
+            total_batches=batch.total_batches,
             total_found=total_found,
             total_summarized=_total_summarized,
             failed_count=len(failed_subjects),
         )
 
         return template.render(
-            entries=entries,
+            entries=batch.entries,
+            batch=batch,
             run_date=run_date,
             total_found=total_found,
             total_summarized=_total_summarized,

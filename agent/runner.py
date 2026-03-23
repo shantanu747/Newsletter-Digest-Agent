@@ -12,13 +12,15 @@ Extension points:
 from __future__ import annotations
 
 import argparse
+import email.utils
+import math
 import sys
 from datetime import datetime, timezone
 
 from agent.utils.config import AgentConfiguration, load_config
 from agent.utils.exceptions import ConfigurationError, FetchError, SummarizationError, DeliveryError
 from agent.utils.logger import get_logger
-from agent.utils.models import DigestEntry
+from agent.utils.models import DigestBatch, DigestEntry, SenderConfig
 from agent.fetchers.gmail_fetcher import GmailFetcher
 from agent.parsers.email_parser import EmailParser
 from agent.summarizer.claude_summarizer import ClaudeSummarizer
@@ -45,10 +47,18 @@ class NewsletterAgent:
         self._builder = DigestBuilder()
         self._delivery = EmailDelivery()
 
+    def _lookup_sender_config(self, sender_header: str) -> SenderConfig | None:
+        """Find the SenderConfig for a sender header value (case-insensitive)."""
+        bare_addr = email.utils.parseaddr(sender_header)[1].lower()
+        for sc in self.config.senders:
+            if sc.address == bare_addr:
+                return sc
+        return None
+
     def run(self) -> None:
-        """Execute a full agent run: fetch → parse → summarize → build → deliver."""
+        """Execute a full agent run: fetch → sort → batch → parse → summarize → build → deliver."""
         run_date = datetime.now(timezone.utc)
-        log.info("agent_run_started", dry_run=self.dry_run, lookback_hours=self.config.lookback_hours)
+        log.info("agent_run_started", dry_run=self.dry_run)
 
         # Fetch
         try:
@@ -58,60 +68,140 @@ class NewsletterAgent:
             raise
 
         if not emails:
-            log.info("no_newsletters_found", lookback_hours=self.config.lookback_hours)
+            log.info("poll_complete_no_emails")
             return
 
-        # Deduplicate and cap
-        seen: dict[str, ...] = {}
-        for e in emails:
-            seen[e.id] = e
-        unique_emails = list(seen.values())[: self.config.max_newsletters_per_run]
-        log.info("newsletters_to_process", count=len(unique_emails), total_found=len(emails))
+        # Sort oldest-first, then cap
+        sorted_emails = sorted(emails, key=lambda e: e.received_at)
+        unique_emails = list({e.id: e for e in sorted_emails}.values())[: self.config.max_newsletters_per_run]
 
-        # Parse + Summarize
-        entries: list[DigestEntry] = []
-        failed_subjects: list[str] = []
+        # Batch into DigestBatch groups
+        batch_size = self.config.batch_size
+        total_batches = math.ceil(len(unique_emails) / batch_size)
 
-        for email in unique_emails:
-            parsed = self._parser.parse(email)
-            try:
-                summary = self._summarizer.summarize(parsed)
-                entries.append(DigestEntry(summary=summary, links=parsed.links, images=parsed.images))
-                log.info("newsletter_processed", message_id=email.id, sender=email.sender, word_count=summary.word_count)
-            except SummarizationError as exc:
-                log.warning("newsletter_summarization_failed", message_id=email.id, subject=email.subject, error=str(exc))
-                failed_subjects.append(email.subject)
-
-        # Build digest
-        html = self._builder.build(
-            entries=entries,
-            run_date=run_date,
-            total_found=len(emails),
-            failed_subjects=failed_subjects,
+        log.info(
+            "poll_started",
+            total_unread=len(unique_emails),
+            total_batches=total_batches,
         )
 
-        # Deliver or dry-run
-        if self.dry_run:
-            log.info("dry_run_complete", summarized=len(entries), failed=len(failed_subjects))
-            print(f"\n{'='*60}")
-            print(f"DRY RUN — Digest for {run_date.strftime('%Y-%m-%d')}")
-            print(f"Newsletters summarized: {len(entries)}, Failed: {len(failed_subjects)}")
-            if failed_subjects:
-                print(f"Failed: {', '.join(failed_subjects)}")
-            print('='*60)
-            for entry in entries:
-                print(f"\n[{entry.summary.sender}] {entry.summary.subject}")
-                print(f"Words: {entry.summary.word_count}")
-                print(entry.summary.summary_text[:300] + "..." if len(entry.summary.summary_text) > 300 else entry.summary.summary_text)
-        else:
-            digest_subject = f"Newsletter Digest — {run_date.strftime('%B %-d, %Y')} ({len(entries)} newsletters)"
-            try:
-                self._delivery.send(html_body=html, subject=digest_subject, config=self.config)
-            except DeliveryError as exc:
-                log.error("delivery_failed", error=str(exc))
-                raise
+        for batch_idx in range(total_batches):
+            batch_emails = unique_emails[batch_idx * batch_size : (batch_idx + 1) * batch_size]
 
-        log.info("agent_run_complete", summarized=len(entries), failed=len(failed_subjects), dry_run=self.dry_run)
+            # Parse + Summarize
+            entries: list[DigestEntry] = []
+            failed_subjects: list[str] = []
+
+            for em in batch_emails:
+                sender_cfg = self._lookup_sender_config(em.sender)
+                parsed = self._parser.parse(em, sender_config=sender_cfg)
+
+                display_name = ""
+                if sender_cfg is not None and sender_cfg.display_name:
+                    display_name = sender_cfg.display_name
+                else:
+                    display_name = email.utils.parseaddr(em.sender)[0] or em.sender
+
+                try:
+                    summary = self._summarizer.summarize(parsed)
+                    entries.append(DigestEntry(
+                        summary=summary,
+                        links=parsed.links,
+                        images=parsed.images,
+                        is_pass_through=parsed.is_pass_through,
+                        display_name=display_name,
+                        gmail_message_id=parsed.gmail_message_id,
+                    ))
+                    log.info(
+                        "newsletter_processed",
+                        message_id=em.id,
+                        sender=em.sender,
+                        word_count=summary.word_count,
+                        pass_through=parsed.is_pass_through,
+                    )
+                except SummarizationError as exc:
+                    log.warning(
+                        "newsletter_summarization_failed",
+                        message_id=em.id,
+                        subject=em.subject,
+                        error=str(exc),
+                    )
+                    failed_subjects.append(em.subject)
+
+            if not entries and not failed_subjects:
+                continue
+
+            gmail_ids = [e.gmail_message_id for e in entries if e.gmail_message_id]
+            digest_batch = DigestBatch(
+                batch_index=batch_idx,
+                entries=entries,
+                gmail_message_ids=gmail_ids,
+                total_batches=total_batches,
+            )
+
+            # Build digest HTML
+            html = self._builder.build(
+                batch=digest_batch,
+                run_date=run_date,
+                total_found=len(unique_emails),
+                failed_subjects=failed_subjects,
+            )
+
+            # Deliver or dry-run
+            batch_label = f"Batch {batch_idx + 1} of {total_batches}"
+            if self.dry_run:
+                log.info(
+                    "dry_run_batch_complete",
+                    batch_index=batch_idx + 1,
+                    total_batches=total_batches,
+                    summarized=len(entries),
+                    failed=len(failed_subjects),
+                )
+                print(f"\n{'='*60}")
+                print(f"DRY RUN — Digest {batch_label} — {run_date.strftime('%Y-%m-%d')}")
+                print(f"Newsletters: {len(entries)}, Failed: {len(failed_subjects)}")
+                if failed_subjects:
+                    print(f"Failed: {', '.join(failed_subjects)}")
+                print('='*60)
+                for entry in entries:
+                    mode = "[PASS-THROUGH]" if entry.is_pass_through else "[SUMMARIZED]"
+                    print(f"\n{mode} [{entry.display_name}] {entry.summary.subject}")
+                    print(f"Words: {entry.summary.word_count}")
+                    preview = entry.summary.summary_text
+                    print(preview[:300] + "..." if len(preview) > 300 else preview)
+            else:
+                digest_subject = (
+                    f"Newsletter Digest — {batch_label} — "
+                    f"{run_date.strftime('%B %-d, %Y')} ({len(entries)} newsletters)"
+                )
+                delivery_succeeded = False
+                try:
+                    self._delivery.send(html_body=html, subject=digest_subject, config=self.config)
+                    delivery_succeeded = True
+                except DeliveryError as exc:
+                    log.error(
+                        "delivery_failed",
+                        batch_index=batch_idx + 1,
+                        total_batches=total_batches,
+                        error=str(exc),
+                    )
+
+                if delivery_succeeded:
+                    # Post-delivery: mark as read then trash each source email
+                    for msg_id in digest_batch.gmail_message_ids:
+                        self._fetcher.mark_as_read(msg_id)
+                        self._fetcher.move_to_trash(msg_id)
+
+                    emails_remaining = len(unique_emails) - (batch_idx + 1) * batch_size
+                    log.info(
+                        "batch_complete",
+                        batch_index=batch_idx + 1,
+                        total_batches=total_batches,
+                        emails_in_batch=len(entries),
+                        emails_remaining=max(0, emails_remaining),
+                    )
+
+        log.info("single_run_complete", dry_run=self.dry_run)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -120,6 +210,11 @@ def _parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Fetch and summarize newsletters but do not send the digest email.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single poll and exit without starting the scheduler.",
     )
     parser.add_argument(
         "--config",
@@ -141,7 +236,7 @@ def main() -> None:
     agent = NewsletterAgent(config=config, dry_run=args.dry_run)
     try:
         agent.run()
-    except (FetchError, DeliveryError) as exc:
+    except FetchError as exc:
         log.error("fatal_error", error=str(exc))
         sys.exit(1)
 
