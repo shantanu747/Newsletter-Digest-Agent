@@ -37,7 +37,7 @@ from agent.digest.delivery import EmailDelivery
 from agent.parsers.email_parser import EmailParser
 from agent.summarizer.claude_summarizer import ClaudeSummarizer
 from agent.utils.eml_loader import load_eml
-from agent.utils.models import DigestEntry
+from agent.utils.models import DigestBatch, DigestEntry
 
 
 def _load_emails(eml_dir: Path) -> list:
@@ -117,8 +117,14 @@ def main() -> None:
     t3 = time.perf_counter()
     print("\n[4/4] Building digest HTML …")
     builder = DigestBuilder()
-    html = builder.build(
+    batch = DigestBatch(
+        batch_index=0,
         entries=entries,
+        gmail_message_ids=[],
+        total_batches=1,
+    )
+    html = builder.build(
+        batch=batch,
         run_date=run_date,
         total_found=len(emails),
         failed_subjects=failed_subjects,
