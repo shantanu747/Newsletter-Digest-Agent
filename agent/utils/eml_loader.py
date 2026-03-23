@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import email as _stdlib_email
 from datetime import datetime, timezone
+from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -56,11 +57,17 @@ def load_eml(path: str | Path) -> Email:
         elif ct == "text/plain" and plain_text_body is None:
             plain_text_body = decoded
 
+    def _decode_header(value: str) -> str:
+        try:
+            return str(make_header(decode_header(value)))
+        except Exception:
+            return value
+
     return Email(
         id=msg_id,
         source="eml_file",
-        sender=msg.get("From", ""),
-        subject=msg.get("Subject", ""),
+        sender=_decode_header(msg.get("From", "")),
+        subject=_decode_header(msg.get("Subject", "")),
         received_at=received_at,
         raw_html=raw_html,
         plain_text=plain_text_body,

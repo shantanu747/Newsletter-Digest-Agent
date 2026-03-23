@@ -6,6 +6,7 @@ No raw dicts or untyped tuples cross module boundaries.
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,29 @@ class EmailLink:
 
     context: str
     """Surrounding sentence snippet providing context, up to 120 chars."""
+
+
+@dataclass(frozen=True)
+class SenderConfig:
+    """Per-sender processing rules from config/newsletters.yaml."""
+
+    address: str
+    """Sender email address (matching key, case-insensitive)."""
+
+    mode: Literal["pass_through", "summarize"] = "summarize"
+    """Processing mode — pass_through preserves content; summarize calls Claude."""
+
+    display_name: str | None = None
+    """Human-readable name shown in digest (falls back to From header)."""
+
+    summary_word_target: int | None = None
+    """Custom word target for summarize mode (overrides global default)."""
+
+    include_images: bool = True
+    """Whether to include qualifying images from this sender."""
+
+    max_images: int | None = None
+    """Max images to include from this sender (overrides global _MAX_IMAGES)."""
 
 
 @dataclass(frozen=True)
@@ -53,6 +77,12 @@ class Email:
     images: tuple[str, ...] = field(default_factory=tuple)
     """Content image URLs extracted by EmailParser. Empty tuple until parsing runs."""
 
+    gmail_message_id: str = ""
+    """Raw Gmail message ID — used for mark-as-read and trash API calls."""
+
+    is_pass_through: bool = False
+    """Whether this email was processed in pass-through mode (no AI summarization)."""
+
 
 @dataclass(frozen=True)
 class Summary:
@@ -68,7 +98,7 @@ class Summary:
     """Copied from source Email.subject."""
 
     summary_text: str
-    """Generated summary prose."""
+    """Generated summary prose (or pass-through text for pass_through senders)."""
 
     word_count: int
     """Actual word count of summary_text."""
@@ -92,3 +122,29 @@ class DigestEntry:
 
     images: tuple[str, ...] = field(default_factory=tuple)
     """Content image URLs to render inline in the digest."""
+
+    is_pass_through: bool = False
+    """Whether content was passed through (not AI-summarized)."""
+
+    display_name: str = ""
+    """Human-readable sender name for template rendering."""
+
+    gmail_message_id: str = ""
+    """Propagated from Email — used for post-delivery mark-as-read and trash."""
+
+
+@dataclass
+class DigestBatch:
+    """A group of up to batch_size emails assembled into one digest email."""
+
+    batch_index: int
+    """0-based index of this batch in the current poll run."""
+
+    entries: list[DigestEntry]
+    """Processed entries in this batch (max batch_size)."""
+
+    gmail_message_ids: list[str]
+    """Source email IDs for post-delivery label operations."""
+
+    total_batches: int
+    """Total number of batches in this poll run (for subject line and logging)."""
