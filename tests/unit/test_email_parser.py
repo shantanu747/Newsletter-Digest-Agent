@@ -275,11 +275,12 @@ class TestClassifyImage:
         assert parser._classify_image(img, soup) is False
 
     def test_trusted_cdn_included(self):
-        """Images from trusted CDN domains are included (CDN inclusion signal)."""
+        """Images from trusted CDN domains in a content parent are included."""
         parser = EmailParser()
         img, soup = _make_img_tag(
             "https://media.beehiiv.com/content/chart-q1.png",
             width="600", height="400",
+            parent_tag="p",
         )
         assert parser._classify_image(img, soup) is True
 
