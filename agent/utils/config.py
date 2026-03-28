@@ -25,6 +25,25 @@ _REQUIRED_ENV = [
 ]
 
 _KNOWN_SENDER_KEYS = {"address", "display_name", "mode", "summary_word_target", "include_images", "max_images"}
+_KNOWN_PROFILE_KEYS = {"interests", "portfolio", "watchlist", "custom_prompts"}
+_KNOWN_HOLDING_KEYS = {"ticker", "name", "notes"}
+
+
+@dataclass
+class UserProfile:
+    """Reader-specific context injected into the advisor prompt."""
+
+    interests: list[str] = field(default_factory=list)
+    """Topics and domains the reader cares about (e.g. 'aviation', 'AI')."""
+
+    portfolio: list[dict] = field(default_factory=list)
+    """Current holdings: [{ticker, name, notes?}, ...]."""
+
+    watchlist: list[dict] = field(default_factory=list)
+    """Stocks being watched but not held: [{ticker, name}, ...]."""
+
+    custom_prompts: list[str] = field(default_factory=list)
+    """Free-text instructions appended directly to the advisor prompt."""
 
 
 @dataclass
@@ -47,6 +66,10 @@ class AgentConfiguration:
 
     # Schedule
     schedule_timezone: str = "UTC"
+
+    # Personalization
+    user_profile: UserProfile | None = None
+    """Reader profile for the advisor layer. None disables all personalization."""
 
     # Secrets (from env)
     anthropic_api_key: str = ""
@@ -107,11 +130,55 @@ def _parse_sender(raw: dict) -> SenderConfig:
     )
 
 
-def load_config(yaml_path: str = "config/newsletters.yaml") -> AgentConfiguration:
+def _parse_user_profile(raw: dict) -> UserProfile:
+    """Parse the user_profile section of user_profile.yaml into a UserProfile.
+
+    Warns on unknown top-level keys. Raises ConfigurationError if any portfolio
+    or watchlist entry is missing 'ticker' or 'name'.
+    """
+    from agent.utils.logger import get_logger
+    log = get_logger(__name__)
+
+    unknown = set(raw.keys()) - _KNOWN_PROFILE_KEYS
+    if unknown:
+        log.warning("unknown_user_profile_keys", keys=sorted(unknown))
+
+    def _parse_holdings(items: list, section: str) -> list[dict]:
+        parsed = []
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ConfigurationError(
+                    f"user_profile.{section}[{i}] must be a mapping, got {type(item).__name__}."
+                )
+            missing_keys = {"ticker", "name"} - set(item.keys())
+            if missing_keys:
+                raise ConfigurationError(
+                    f"user_profile.{section}[{i}] is missing required field(s): "
+                    f"{', '.join(sorted(missing_keys))}."
+                )
+            unknown_keys = set(item.keys()) - _KNOWN_HOLDING_KEYS
+            if unknown_keys:
+                log.warning("unknown_holding_keys", section=section, keys=sorted(unknown_keys))
+            parsed.append({k: v for k, v in item.items()})
+        return parsed
+
+    return UserProfile(
+        interests=[str(i) for i in (raw.get("interests") or [])],
+        portfolio=_parse_holdings(raw.get("portfolio") or [], "portfolio"),
+        watchlist=_parse_holdings(raw.get("watchlist") or [], "watchlist"),
+        custom_prompts=[str(p) for p in (raw.get("custom_prompts") or [])],
+    )
+
+
+def load_config(yaml_path: str = "config/newsletters.yaml", profile_path: str = "config/user_profile.yaml") -> AgentConfiguration:
     """Load configuration from YAML file and environment variables.
 
+    Optionally loads a user profile from profile_path (default:
+    config/user_profile.yaml). If the profile file is absent, personalization
+    is silently disabled (cfg.user_profile stays None).
+
     Raises ConfigurationError if any required ENV variable is missing or empty,
-    or if the YAML file is missing / malformed.
+    or if either YAML file is malformed.
     """
     path = Path(yaml_path)
     if not path.exists():
@@ -182,5 +249,14 @@ def load_config(yaml_path: str = "config/newsletters.yaml") -> AgentConfiguratio
             "no_detection_rules",
             message="Both senders and subject_keywords are empty — no newsletters will be fetched.",
         )
+
+    # Optionally load the user profile for advisor personalization
+    profile_file = Path(profile_path)
+    if profile_file.exists():
+        try:
+            profile_raw = yaml.safe_load(profile_file.read_text()) or {}
+        except yaml.YAMLError as exc:
+            raise ConfigurationError(f"Malformed YAML in {profile_path}: {exc}") from exc
+        cfg.user_profile = _parse_user_profile(profile_raw.get("user_profile") or {})
 
     return cfg

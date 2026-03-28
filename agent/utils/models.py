@@ -133,6 +133,17 @@ class DigestEntry:
     """Propagated from Email — used for post-delivery mark-as-read and trash."""
 
 
+@dataclass(frozen=True)
+class AdvisorAnalysis:
+    """Personalized advisor output synthesized across all newsletters in a digest."""
+
+    relevance_text: str | None
+    """How today's collective news affects the reader's existing holdings/interests."""
+
+    signals_text: str | None
+    """Actionable buy/sell/watch signals synthesized across all newsletters."""
+
+
 @dataclass
 class DigestBatch:
     """A group of up to batch_size emails assembled into one digest email."""
@@ -148,3 +159,6 @@ class DigestBatch:
 
     total_batches: int
     """Total number of batches in this poll run (for subject line and logging)."""
+
+    advisor: AdvisorAnalysis | None = None
+    """Personalized advisor analysis. None when no user profile is configured."""
