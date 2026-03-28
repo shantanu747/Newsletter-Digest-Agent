@@ -96,3 +96,48 @@ class TestDryRun:
         assert len(summarize_calls) == 2
         assert "dup" in summarize_calls
         assert "extra" in summarize_calls
+
+
+class TestPreviewMode:
+    """--preview delivers email but skips Gmail mutations."""
+
+    def _setup(self, mock_config, mocker):
+        mock_email = Email(
+            id="msg-1", source="gmail", sender="a@example.com",
+            subject="Test", received_at=datetime(2026, 3, 9, 7, 0, tzinfo=timezone.utc),
+            raw_html="<p>hello</p>", plain_text="hello",
+        )
+        mocker.patch("agent.runner.GmailFetcher.fetch_newsletters", return_value=[mock_email])
+        mocker.patch("agent.runner.EmailParser.parse", return_value=mock_email)
+        mock_summary = Summary(
+            email_id="msg-1", sender="a@example.com", subject="Test",
+            summary_text="word " * 225, word_count=225,
+            generated_at=datetime(2026, 3, 9, 7, 1, tzinfo=timezone.utc),
+        )
+        mocker.patch("agent.runner.ClaudeSummarizer.summarize", return_value=mock_summary)
+        mocker.patch("agent.runner.DigestBuilder.build", return_value="<html>digest</html>")
+        mock_send = mocker.patch("agent.runner.EmailDelivery.send")
+        mock_mark = mocker.patch("agent.runner.GmailFetcher.mark_as_read")
+        mock_trash = mocker.patch("agent.runner.GmailFetcher.move_to_trash")
+        return mock_send, mock_mark, mock_trash
+
+    def test_preview_delivers_email(self, mock_config, mocker):
+        """--preview must invoke EmailDelivery.send."""
+        mock_send, _, _ = self._setup(mock_config, mocker)
+        agent = NewsletterAgent(config=mock_config, preview=True)
+        agent.run()
+        mock_send.assert_called_once()
+
+    def test_preview_does_not_mark_as_read(self, mock_config, mocker):
+        """--preview must not call mark_as_read."""
+        _, mock_mark, _ = self._setup(mock_config, mocker)
+        agent = NewsletterAgent(config=mock_config, preview=True)
+        agent.run()
+        mock_mark.assert_not_called()
+
+    def test_preview_does_not_move_to_trash(self, mock_config, mocker):
+        """--preview must not call move_to_trash."""
+        _, _, mock_trash = self._setup(mock_config, mocker)
+        agent = NewsletterAgent(config=mock_config, preview=True)
+        agent.run()
+        mock_trash.assert_not_called()

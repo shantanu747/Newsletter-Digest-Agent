@@ -6,12 +6,16 @@ Tests cover:
 - Invalid mode value raises ConfigurationError
 - batch_size defaults to 10 when not specified
 - Empty senders list raises no error (warning logged instead)
+- UserProfile parses interests, portfolio, watchlist, custom_prompts
+- Missing ticker/name in portfolio raises ConfigurationError
+- Absent user_profile.yaml leaves cfg.user_profile as None
+- Malformed user_profile.yaml raises ConfigurationError
 """
 
 import pytest
 from unittest.mock import patch, MagicMock
 
-from agent.utils.config import _parse_sender, AgentConfiguration
+from agent.utils.config import _parse_sender, _parse_user_profile, AgentConfiguration, UserProfile
 from agent.utils.exceptions import ConfigurationError
 from agent.utils.models import SenderConfig
 
@@ -142,3 +146,166 @@ class TestAgentConfigurationDefaults:
         sc = SenderConfig(address="x@example.com", mode="summarize")
         cfg = AgentConfiguration(senders=[sc])
         assert cfg.senders[0].address == "x@example.com"
+
+    def test_user_profile_defaults_to_none(self):
+        """user_profile defaults to None when not set."""
+        cfg = AgentConfiguration()
+        assert cfg.user_profile is None
+
+
+# ---------------------------------------------------------------------------
+# _parse_user_profile() tests
+# ---------------------------------------------------------------------------
+
+class TestParseUserProfile:
+    """Tests for the _parse_user_profile() helper."""
+
+    def test_interests_parsed(self):
+        """interests list is parsed into UserProfile.interests."""
+        profile = _parse_user_profile({"interests": ["aviation", "AI"]})
+        assert profile.interests == ["aviation", "AI"]
+
+    def test_portfolio_parsed(self):
+        """portfolio list with ticker+name is parsed correctly."""
+        raw = {"portfolio": [{"ticker": "UAL", "name": "United Airlines"}]}
+        profile = _parse_user_profile(raw)
+        assert len(profile.portfolio) == 1
+        assert profile.portfolio[0]["ticker"] == "UAL"
+        assert profile.portfolio[0]["name"] == "United Airlines"
+
+    def test_portfolio_notes_preserved(self):
+        """notes field in portfolio entries is preserved."""
+        raw = {"portfolio": [{"ticker": "BA", "name": "Boeing", "notes": "Watch 737 MAX."}]}
+        profile = _parse_user_profile(raw)
+        assert profile.portfolio[0]["notes"] == "Watch 737 MAX."
+
+    def test_watchlist_parsed(self):
+        """watchlist entries are parsed correctly."""
+        raw = {"watchlist": [{"ticker": "RIVN", "name": "Rivian"}]}
+        profile = _parse_user_profile(raw)
+        assert profile.watchlist[0]["ticker"] == "RIVN"
+
+    def test_custom_prompts_parsed(self):
+        """custom_prompts list is parsed into UserProfile.custom_prompts."""
+        raw = {"custom_prompts": ["Flag SpaceX news.", "Long-term only."]}
+        profile = _parse_user_profile(raw)
+        assert profile.custom_prompts == ["Flag SpaceX news.", "Long-term only."]
+
+    def test_empty_dict_returns_defaults(self):
+        """Empty dict returns a UserProfile with all empty fields."""
+        profile = _parse_user_profile({})
+        assert profile.interests == []
+        assert profile.portfolio == []
+        assert profile.watchlist == []
+        assert profile.custom_prompts == []
+
+    def test_missing_ticker_raises(self):
+        """ConfigurationError raised when portfolio entry is missing 'ticker'."""
+        with pytest.raises(ConfigurationError, match="ticker"):
+            _parse_user_profile({"portfolio": [{"name": "United Airlines"}]})
+
+    def test_missing_name_raises(self):
+        """ConfigurationError raised when portfolio entry is missing 'name'."""
+        with pytest.raises(ConfigurationError, match="name"):
+            _parse_user_profile({"portfolio": [{"ticker": "UAL"}]})
+
+    def test_watchlist_missing_ticker_raises(self):
+        """ConfigurationError raised when watchlist entry is missing 'ticker'."""
+        with pytest.raises(ConfigurationError, match="ticker"):
+            _parse_user_profile({"watchlist": [{"name": "Rivian"}]})
+
+    def test_unknown_profile_keys_log_warning(self, mocker):
+        """Unknown top-level keys produce a warning but do not raise."""
+        mock_log = MagicMock()
+        mocker.patch("agent.utils.logger.get_logger", return_value=mock_log)
+        _parse_user_profile({"interests": ["AI"], "unknown_field": "value"})
+        mock_log.warning.assert_called_once()
+
+
+class TestLoadConfigUserProfile:
+    """Tests for user_profile loading inside load_config()."""
+
+    def test_absent_profile_file_sets_none(self, tmp_path):
+        """user_profile stays None when user_profile.yaml does not exist."""
+        from agent.utils.config import load_config
+        import os
+
+        yaml_content = "senders: []\nsubject_keywords: []\n"
+        yaml_file = tmp_path / "newsletters.yaml"
+        yaml_file.write_text(yaml_content)
+        absent_profile = str(tmp_path / "nonexistent_profile.yaml")
+
+        env = {
+            "ANTHROPIC_API_KEY": "sk-test",
+            "GMAIL_OAUTH_TOKEN_PATH": "token.json",
+            "DELIVERY_EMAIL": "test@example.com",
+            "SMTP_HOST": "smtp.example.com",
+            "SMTP_PORT": "587",
+            "SMTP_USER": "user@example.com",
+            "SMTP_PASSWORD": "password",
+        }
+        with patch.dict(os.environ, env):
+            cfg = load_config(str(yaml_file), profile_path=absent_profile)
+
+        assert cfg.user_profile is None
+
+    def test_valid_profile_file_sets_user_profile(self, tmp_path):
+        """Valid user_profile.yaml is parsed and attached to cfg."""
+        from agent.utils.config import load_config
+        import os
+
+        yaml_content = "senders: []\nsubject_keywords: []\n"
+        yaml_file = tmp_path / "newsletters.yaml"
+        yaml_file.write_text(yaml_content)
+
+        profile_content = (
+            "user_profile:\n"
+            "  interests:\n"
+            "    - aviation\n"
+            "  portfolio:\n"
+            "    - ticker: UAL\n"
+            "      name: United Airlines\n"
+        )
+        profile_file = tmp_path / "user_profile.yaml"
+        profile_file.write_text(profile_content)
+
+        env = {
+            "ANTHROPIC_API_KEY": "sk-test",
+            "GMAIL_OAUTH_TOKEN_PATH": "token.json",
+            "DELIVERY_EMAIL": "test@example.com",
+            "SMTP_HOST": "smtp.example.com",
+            "SMTP_PORT": "587",
+            "SMTP_USER": "user@example.com",
+            "SMTP_PASSWORD": "password",
+        }
+        with patch.dict(os.environ, env):
+            cfg = load_config(str(yaml_file), profile_path=str(profile_file))
+
+        assert cfg.user_profile is not None
+        assert cfg.user_profile.interests == ["aviation"]
+        assert cfg.user_profile.portfolio[0]["ticker"] == "UAL"
+
+    def test_malformed_profile_yaml_raises(self, tmp_path):
+        """Malformed YAML in user_profile.yaml raises ConfigurationError."""
+        from agent.utils.config import load_config
+        import os
+
+        yaml_content = "senders: []\nsubject_keywords: []\n"
+        yaml_file = tmp_path / "newsletters.yaml"
+        yaml_file.write_text(yaml_content)
+
+        profile_file = tmp_path / "user_profile.yaml"
+        profile_file.write_text("user_profile: {\n  bad yaml: [unclosed")
+
+        env = {
+            "ANTHROPIC_API_KEY": "sk-test",
+            "GMAIL_OAUTH_TOKEN_PATH": "token.json",
+            "DELIVERY_EMAIL": "test@example.com",
+            "SMTP_HOST": "smtp.example.com",
+            "SMTP_PORT": "587",
+            "SMTP_USER": "user@example.com",
+            "SMTP_PASSWORD": "password",
+        }
+        with patch.dict(os.environ, env):
+            with pytest.raises(ConfigurationError, match="Malformed YAML"):
+                load_config(str(yaml_file), profile_path=str(profile_file))

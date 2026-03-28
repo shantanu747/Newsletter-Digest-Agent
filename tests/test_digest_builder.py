@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.utils.models import DigestBatch, DigestEntry, Email, Summary
+from agent.utils.models import AdvisorAnalysis, DigestBatch, DigestEntry, Email, Summary
 
 
 # ---------------------------------------------------------------------------
@@ -43,12 +43,18 @@ def _make_entry(
     return DigestEntry(summary=_make_summary(email_id, sender, subject, summary_text))
 
 
-def _make_batch(entries: list[DigestEntry], batch_index: int = 0, total_batches: int = 1) -> DigestBatch:
+def _make_batch(
+    entries: list[DigestEntry],
+    batch_index: int = 0,
+    total_batches: int = 1,
+    advisor: AdvisorAnalysis | None = None,
+) -> DigestBatch:
     return DigestBatch(
         batch_index=batch_index,
         entries=entries,
         gmail_message_ids=[],
         total_batches=total_batches,
+        advisor=advisor,
     )
 
 
@@ -265,6 +271,69 @@ class TestDigestBuilderEmptyEntries:
         assert "March" in html or "03" in html or "2026-03-09" in html
 
 
+class TestDigestBuilderAdvisorCards:
+    """Advisor cards render when AdvisorAnalysis is present; absent otherwise."""
+
+    def test_relevance_text_appears_in_html(self, mocker, run_date):
+        """When advisor has relevance_text, it appears in the rendered HTML."""
+        advisor = AdvisorAnalysis(
+            relevance_text="UAL margins at risk from rising oil prices.",
+            signals_text=None,
+        )
+        batch = _make_batch([], advisor=advisor)
+        rendered_html = _fake_render([], run_date=run_date, advisor=advisor)
+        mock_template = MagicMock()
+        mock_template.render.return_value = rendered_html
+        mocker.patch("jinja2.Environment.get_template", return_value=mock_template)
+
+        from agent.digest.builder import DigestBuilder
+        html = DigestBuilder().build(batch=batch, run_date=run_date)
+        assert "UAL margins at risk from rising oil prices." in html
+
+    def test_signals_text_appears_in_html(self, mocker, run_date):
+        """When advisor has signals_text, it appears in the rendered HTML."""
+        advisor = AdvisorAnalysis(
+            relevance_text=None,
+            signals_text="[BUY] XOM (ExxonMobil) — oil price tailwind.",
+        )
+        batch = _make_batch([], advisor=advisor)
+        rendered_html = _fake_render([], run_date=run_date, advisor=advisor)
+        mock_template = MagicMock()
+        mock_template.render.return_value = rendered_html
+        mocker.patch("jinja2.Environment.get_template", return_value=mock_template)
+
+        from agent.digest.builder import DigestBuilder
+        html = DigestBuilder().build(batch=batch, run_date=run_date)
+        assert "[BUY] XOM (ExxonMobil) — oil price tailwind." in html
+
+    def test_no_advisor_section_when_advisor_is_none(self, mocker, run_date):
+        """When advisor is None, no advisor content appears in the HTML."""
+        batch = _make_batch([], advisor=None)
+        rendered_html = _fake_render([], run_date=run_date, advisor=None)
+        mock_template = MagicMock()
+        mock_template.render.return_value = rendered_html
+        mocker.patch("jinja2.Environment.get_template", return_value=mock_template)
+
+        from agent.digest.builder import DigestBuilder
+        html = DigestBuilder().build(batch=batch, run_date=run_date)
+        assert "What This Means For You" not in html
+        assert "Action Signals" not in html
+
+    def test_no_advisor_section_when_both_fields_none(self, mocker, run_date):
+        """An AdvisorAnalysis with both fields None produces no advisor content."""
+        advisor = AdvisorAnalysis(relevance_text=None, signals_text=None)
+        batch = _make_batch([], advisor=advisor)
+        rendered_html = _fake_render([], run_date=run_date, advisor=advisor)
+        mock_template = MagicMock()
+        mock_template.render.return_value = rendered_html
+        mocker.patch("jinja2.Environment.get_template", return_value=mock_template)
+
+        from agent.digest.builder import DigestBuilder
+        html = DigestBuilder().build(batch=batch, run_date=run_date)
+        assert "What This Means For You" not in html
+        assert "Action Signals" not in html
+
+
 # ---------------------------------------------------------------------------
 # Internal test-only render helper
 # ---------------------------------------------------------------------------
@@ -273,12 +342,18 @@ def _fake_render(
     entries: list[DigestEntry],
     run_date: datetime,
     failed_subjects: list[str] | None = None,
+    advisor: AdvisorAnalysis | None = None,
 ) -> str:
     failed_subjects = failed_subjects or []
     parts = [
         "<!DOCTYPE html><html><body>",
         f"<p>Run date: {run_date.strftime('%Y-%m-%d %B')}</p>",
     ]
+    if advisor is not None:
+        if advisor.relevance_text:
+            parts.append(f"<div class='advisor-relevance'><p>What This Means For You</p><p>{advisor.relevance_text}</p></div>")
+        if advisor.signals_text:
+            parts.append(f"<div class='advisor-signals'><p>Action Signals</p><p>{advisor.signals_text}</p></div>")
     for entry in entries:
         s = entry.summary
         parts.append("<div class='entry'>")
