@@ -107,7 +107,7 @@ class ClaudeSummarizer:
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_content}],
                 )
-                text = response.content[0].text.strip()
+                text = response.content[0].text.strip().replace("**", "")
                 word_count = len(text.split())
                 self._log.info(
                     "newsletter_summarized",

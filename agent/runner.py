@@ -31,9 +31,10 @@ log = get_logger(__name__)
 
 
 class NewsletterAgent:
-    def __init__(self, config: AgentConfiguration, dry_run: bool = False) -> None:
+    def __init__(self, config: AgentConfiguration, dry_run: bool = False, preview: bool = False) -> None:
         self.config = config
         self.dry_run = dry_run
+        self.preview = preview
         self._fetcher = GmailFetcher()
         self._parser = EmailParser()
         self._summarizer = ClaudeSummarizer(
@@ -131,12 +132,22 @@ class NewsletterAgent:
             if not entries and not failed_subjects:
                 continue
 
+            # Advisor analysis — one call across all summaries in this batch
+            advisor = None
+            if self.config.user_profile is not None and entries:
+                from agent.advisor.analyzer import AdvisorAnalyzer
+                advisor = AdvisorAnalyzer(
+                    api_key=self.config.anthropic_api_key,
+                    user_profile=self.config.user_profile,
+                ).analyze([e.summary for e in entries])
+
             gmail_ids = [e.gmail_message_id for e in entries if e.gmail_message_id]
             digest_batch = DigestBatch(
                 batch_index=batch_idx,
                 entries=entries,
                 gmail_message_ids=gmail_ids,
                 total_batches=total_batches,
+                advisor=advisor,
             )
 
             # Build digest HTML
@@ -163,6 +174,16 @@ class NewsletterAgent:
                 if failed_subjects:
                     print(f"Failed: {', '.join(failed_subjects)}")
                 print('='*60)
+                if digest_batch.advisor:
+                    adv = digest_batch.advisor
+                    if adv.relevance_text:
+                        print("\n--- What This Means For You ---")
+                        r = adv.relevance_text
+                        print(r[:400] + "..." if len(r) > 400 else r)
+                    if adv.signals_text:
+                        print("\n--- Action Signals ---")
+                        s = adv.signals_text
+                        print(s[:400] + "..." if len(s) > 400 else s)
                 for entry in entries:
                     mode = "[PASS-THROUGH]" if entry.is_pass_through else "[SUMMARIZED]"
                     print(f"\n{mode} [{entry.display_name}] {entry.summary.subject}")
@@ -187,10 +208,13 @@ class NewsletterAgent:
                     )
 
                 if delivery_succeeded:
-                    # Post-delivery: mark as read then trash each source email
-                    for msg_id in digest_batch.gmail_message_ids:
-                        self._fetcher.mark_as_read(msg_id)
-                        self._fetcher.move_to_trash(msg_id)
+                    if not self.preview:
+                        # Post-delivery: mark as read then trash each source email
+                        for msg_id in digest_batch.gmail_message_ids:
+                            self._fetcher.mark_as_read(msg_id)
+                            self._fetcher.move_to_trash(msg_id)
+                    else:
+                        log.info("preview_skipped_mutations", message_ids=digest_batch.gmail_message_ids)
 
                     emails_remaining = len(unique_emails) - (batch_idx + 1) * batch_size
                     log.info(
@@ -210,6 +234,11 @@ def _parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Fetch and summarize newsletters but do not send the digest email.",
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Deliver the digest email but skip mark-as-read and move-to-trash.",
     )
     parser.add_argument(
         "--once",
@@ -233,7 +262,7 @@ def main() -> None:
         print(f"Configuration error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    agent = NewsletterAgent(config=config, dry_run=args.dry_run)
+    agent = NewsletterAgent(config=config, dry_run=args.dry_run, preview=args.preview)
     try:
         agent.run()
     except FetchError as exc:
