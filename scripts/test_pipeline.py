@@ -113,6 +113,33 @@ def main() -> None:
             failed_subjects.append(parsed.subject)
     print(f"      Summarized in {time.perf_counter() - t2:.2f}s")
 
+    # --- Stage 3b: Advisor analysis (optional — requires user_profile.yaml) ---
+    from pathlib import Path as _Path
+    from agent.utils.config import _parse_user_profile as _parse_profile
+    import yaml as _yaml
+
+    advisor = None
+    _profile_path = _Path("config/user_profile.yaml")
+    if _profile_path.exists():
+        try:
+            _raw = _yaml.safe_load(_profile_path.read_text()) or {}
+            _profile = _parse_profile(_raw.get("user_profile") or {})
+            from agent.advisor.analyzer import AdvisorAnalyzer
+            t_adv = time.perf_counter()
+            print("\n[3b] Running advisor analysis …")
+            advisor = AdvisorAnalyzer(api_key=api_key, user_profile=_profile).analyze(
+                [e.summary for e in entries]
+            )
+            print(
+                f"      Advisor complete in {time.perf_counter() - t_adv:.2f}s "
+                f"(relevance={'yes' if advisor.relevance_text else 'none'}, "
+                f"signals={'yes' if advisor.signals_text else 'none'})"
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  Advisor skipped: {exc}", file=sys.stderr)
+    else:
+        print("\n[3b] No user_profile.yaml found — advisor section skipped.")
+
     # --- Stage 4: Build ---
     t3 = time.perf_counter()
     print("\n[4/4] Building digest HTML …")
@@ -122,6 +149,7 @@ def main() -> None:
         entries=entries,
         gmail_message_ids=[],
         total_batches=1,
+        advisor=advisor,
     )
     html = builder.build(
         batch=batch,
@@ -144,7 +172,10 @@ def main() -> None:
         delivery.send(html_body=html, subject=subject, config=config)
         print("Sent!")
     else:
-        out_path = eml_dir / "test_digest_output.html"
+        outputs_dir = Path("test_outputs")
+        outputs_dir.mkdir(exist_ok=True)
+        timestamp = run_date.strftime("%Y-%m-%d_%H%M%S")
+        out_path = outputs_dir / f"{timestamp}_digest.html"
         out_path.write_text(html, encoding="utf-8")
         print(f"\nDry-run complete. HTML saved to {out_path}")
         if args.open:

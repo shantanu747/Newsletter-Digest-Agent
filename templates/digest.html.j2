@@ -89,6 +89,51 @@
         </tr>
 
         <!-- ====================================================== -->
+        <!-- Advisor Cards (personalization — only if profile set)  -->
+        <!-- ====================================================== -->
+        {% if batch is defined and batch.advisor and (batch.advisor.relevance_text or batch.advisor.signals_text) %}
+        <tr>
+          <td style="padding: 0 40px 8px;">
+            {% if batch.advisor.relevance_text %}
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                   style="margin-bottom: 12px; border-radius: 12px; overflow: hidden;
+                          background-color: #f0f5fb; border-left: 4px solid #4a8fc2;">
+              <tr>
+                <td style="padding: 16px 20px;">
+                  <p style="margin: 0 0 10px; font-size: 11px; font-weight: 600;
+                            text-transform: uppercase; letter-spacing: 0.08em; color: #4a8fc2;">
+                    &#8627; What This Means For You
+                  </p>
+                  <div style="font-size: 14px; line-height: 1.7; color: #3a3a3c;">
+                    {{ batch.advisor.relevance_text | nl2br }}
+                  </div>
+                </td>
+              </tr>
+            </table>
+            {% endif %}
+            {% if batch.advisor.signals_text %}
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                   style="border-radius: 12px; overflow: hidden;
+                          background-color: #fdf8f0; border-left: 4px solid #d4a574;">
+              <tr>
+                <td style="padding: 16px 20px;">
+                  <p style="margin: 0 0 10px; font-size: 11px; font-weight: 600;
+                            text-transform: uppercase; letter-spacing: 0.08em; color: #b8863a;">
+                    &#9889; Action Signals
+                  </p>
+                  <div style="font-size: 14px; line-height: 1.8; color: #3a3a3c;
+                              font-family: 'Courier New', Courier, monospace;">
+                    {{ batch.advisor.signals_text | nl2br }}
+                  </div>
+                </td>
+              </tr>
+            </table>
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+
+        <!-- ====================================================== -->
         <!-- Table of Contents                                       -->
         <!-- ====================================================== -->
         {% if entries %}

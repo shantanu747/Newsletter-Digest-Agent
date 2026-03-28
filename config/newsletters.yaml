@@ -24,16 +24,20 @@ summary_max_words: 500             # ceiling for percentage mode
 # Per-sender rules — replaces the old flat sender list
 # mode: "summarize" (default) | "pass_through" (preserve content, skip AI)
 senders:
-  - address: "newsletter@morningbrew.com"
-    display_name: "Morning Brew"
+  - address: "noreply@news.bloomberg.com"
+    display_name: "Bloomberg"
     mode: summarize
 
-  - address: "digest@tldr.tech"
-    display_name: "TLDR"
+  - address: "aijournal@mail.beehiiv.com"
+    display_name: "The AI Journal"
     mode: summarize
 
-  - address: "hello@stratechery.com"
-    display_name: "Stratechery"
+  - address: "unusualwhales@substack.com"
+    display_name: "Unusual Whales Newsletter"
+    mode: summarize
+
+  - address: "kilocode@substack.com"
+    display_name: "Kilo"
     mode: summarize
 
 
