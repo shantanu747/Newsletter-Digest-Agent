@@ -36,8 +36,9 @@ This one-time step creates the OAuth credentials the agent uses to read your Gma
 2. Navigate to **APIs & Services → Library**, search for **Gmail API**, and click **Enable**.
 3. Go to **APIs & Services → OAuth consent screen**:
    - Choose **External** and click **Create**.
-   - Fill in an app name (e.g. "Newsletter Digest") and your email as the support contact.
-   - Click through the remaining screens. On the **Test users** screen, add your own Gmail address.
+   - Fill in an app name (e.g. "Newsletter Digest") and your email as the support contact, then click **Save and Continue**.
+   - On the **Scopes** screen, click **Save and Continue** again.
+   - On the **Test users** screen, add your own Gmail address.
 4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Application type: **Desktop app** — give it any name and click **Create**.
 5. Click **Download JSON**, rename the file to `credentials.json`, and place it in the project root (it is gitignored and will never be committed).
