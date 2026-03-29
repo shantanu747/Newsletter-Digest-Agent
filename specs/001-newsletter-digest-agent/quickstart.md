@@ -7,7 +7,7 @@
 ## Prerequisites
 
 - Python 3.11 or higher
-- A Gmail account with Gmail API enabled in Google Cloud Console
+- A Google account with Gmail
 - An Anthropic API key
 - Git
 
@@ -28,7 +28,23 @@ pip install -r requirements.txt
 
 ---
 
-## 2. Configure secrets
+## 2. Set up Google Cloud and enable the Gmail API
+
+This one-time step creates the OAuth credentials the agent uses to read your Gmail.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (or select an existing one).
+2. Navigate to **APIs & Services → Library**, search for **Gmail API**, and click **Enable**.
+3. Go to **APIs & Services → OAuth consent screen**:
+   - Choose **External** and click **Create**.
+   - Fill in an app name (e.g. "Newsletter Digest") and your email as the support contact.
+   - Click through the remaining screens. On the **Test users** screen, add your own Gmail address.
+4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
+   - Application type: **Desktop app** — give it any name and click **Create**.
+5. Click **Download JSON**, rename the file to `credentials.json`, and place it in the project root (it is gitignored and will never be committed).
+
+---
+
+## 3. Configure secrets
 
 ```bash
 cp .env.example .env
@@ -39,18 +55,23 @@ Edit `.env` and fill in all required values:
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
 GMAIL_OAUTH_TOKEN_PATH=token.json
+
+# Address that will RECEIVE the daily digest
 DELIVERY_EMAIL=you@gmail.com
+
+# Gmail account used to SEND the digest (can be the same address)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=you@gmail.com
 SMTP_PASSWORD=your-16-char-app-password
 ```
 
-> **Gmail App Password**: Go to your Google Account → Security → 2-Step Verification → App passwords. Generate one for "Mail" and paste it as `SMTP_PASSWORD`. This is not your regular Gmail password.
+> **SMTP_PASSWORD is a Gmail App Password, not your regular Gmail password.**
+> Go to Google Account → Security → 2-Step Verification → App passwords, generate one for "Mail", and paste it here.
 
 ---
 
-## 3. Authenticate with Gmail
+## 4. Authenticate with Gmail
 
 Run the one-time OAuth consent flow:
 
@@ -58,11 +79,11 @@ Run the one-time OAuth consent flow:
 python scripts/gmail_auth.py
 ```
 
-This opens a browser window. Sign in and grant read access to Gmail. Credentials are saved to `token.json` (gitignored). You only need to run this once; the agent will refresh the token automatically on subsequent runs.
+This opens a browser window. Sign in with your Gmail account and grant read access. Credentials are saved to `token.json` (gitignored). You only need to run this once — the agent refreshes the token automatically on subsequent runs.
 
 ---
 
-## 4. Configure newsletters
+## 5. Configure newsletters
 
 Edit `config/newsletters.yaml`:
 
@@ -89,17 +110,17 @@ Add at least one sender address or keyword to enable newsletter detection.
 
 ---
 
-## 5. Test with a dry run
+## 6. Test with a dry run
 
 ```bash
 python -m agent.runner --dry-run
 ```
 
-This fetches and summarizes newsletters but does **not** send an email. Review the output to confirm newsletters are being detected and summaries look correct.
+This fetches and summarizes newsletters but does **not** send an email. For each newsletter found, it prints the subject line, source character count, and a preview of the generated summary to stdout. Review this output to confirm the right newsletters are being detected and summaries look correct before enabling delivery.
 
 ---
 
-## 6. Run the full agent
+## 7. Run the full agent
 
 ```bash
 python -m agent.runner
@@ -109,7 +130,7 @@ Fetches, summarizes, and delivers the digest to `DELIVERY_EMAIL`. Check your inb
 
 ---
 
-## 7. Start the daily scheduler (optional)
+## 8. Start the daily scheduler (optional)
 
 ```bash
 python -m agent.scheduler
@@ -156,6 +177,8 @@ All unit tests run offline with mocked external dependencies.
 ## Common Issues
 
 **"No newsletters found"**: Check that `config/newsletters.yaml` has at least one sender address or keyword, and that matching emails exist in your inbox within the `lookback_hours` window.
+
+**`credentials.json` not found**: Make sure you downloaded your OAuth client credentials from Google Cloud Console (step 2) and placed the file — named exactly `credentials.json` — in the project root directory.
 
 **OAuth token error**: Re-run `python scripts/gmail_auth.py` to refresh credentials.
 
