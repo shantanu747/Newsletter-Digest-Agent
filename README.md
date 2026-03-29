@@ -119,7 +119,8 @@ This is a one-time step to create the OAuth credentials the agent uses to read y
 2. Navigate to **APIs & Services → Library**, search for **Gmail API**, and click **Enable**.
 3. Go to **APIs & Services → OAuth consent screen**:
    - Choose **External** user type and click **Create**.
-   - Fill in an app name (e.g. "Newsletter Digest"), your email as the support contact, and click **Save and Continue** through the remaining screens.
+   - Fill in an app name (e.g. "Newsletter Digest"), your email as the support contact, and click **Save and Continue**.
+   - On the **Scopes** screen that follows, click **Save and Continue** again (no scopes need to be added manually).
    - On the **Test users** screen, add your own Gmail address so the app can authenticate against your account.
 4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Application type: **Desktop app**
