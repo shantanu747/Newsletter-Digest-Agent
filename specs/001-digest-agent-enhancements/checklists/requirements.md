@@ -1,7 +1,8 @@
-# Specification Quality Checklist: Newsletter Digest Agent
+# Specification Quality Checklist: Newsletter Digest Agent Enhancements
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-03-09
+**Created**: 2026-03-19
+**Updated**: 2026-03-19 (v2 — detailed requirements incorporated)
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,8 +32,7 @@
 
 ## Notes
 
-- All items pass. Spec is ready for `/speckit.plan`.
-- 5 user stories cover the full end-to-end flow: manual run, dry run, scheduled run, newsletter detection, and resilience.
-- 14 functional requirements are fully testable and unambiguous.
-- 7 success criteria are measurable and technology-agnostic.
-- Assumptions section clearly bounds scope (no cross-run deduplication, no third-party delivery service, scheduler is user-managed process).
+- v2 incorporates explicit per-sender rules (Superhuman, The Rundown AI, The Code as pass-through), strict image filtering (graphs/charts/memes only), unread inbox fetching, trash-after-delivery, 10-email batch size, and rate-limited processing
+- Image classification approach is noted in Assumptions as a potential implementation risk — AI vision may be needed if heuristics are insufficient
+- "Confirmed delivery" is defined as SMTP success (no read-receipt required); noted in Assumptions
+- All items pass on this validation iteration

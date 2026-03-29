@@ -3,21 +3,11 @@
 # Non-secret settings only. Secrets go in .env
 # ============================================================
 
-# Sender email addresses to always include (exact match, case-insensitive)
-senders:
-  - "newsletter@morningbrew.com"
-  - "digest@tldr.tech"
-  - "hello@stratechery.com"
+# How often to poll Gmail (in hours)
+poll_interval_hours: 4
 
-# Subject line keywords — include any email whose subject contains one of these
-# (case-insensitive substring match, for senders not on the allowlist above)
-subject_keywords:
-  - "daily digest"
-  - "weekly roundup"
-  - "newsletter"
-
-# How many hours back to search for newsletters (default: 24)
-lookback_hours: 24
+# Max emails per digest batch
+batch_size: 10
 
 # Hard cap on newsletters processed per run to avoid runaway API usage (default: 20)
 max_newsletters_per_run: 20
@@ -31,8 +21,33 @@ summary_percentage: 18             # % of source word count (used when mode=perc
 summary_min_words: 100             # floor for percentage mode
 summary_max_words: 500             # ceiling for percentage mode
 
+# Per-sender rules — replaces the old flat sender list
+# mode: "summarize" (default) | "pass_through" (preserve content, skip AI)
+senders:
+  - address: "noreply@news.bloomberg.com"
+    display_name: "Bloomberg"
+    mode: summarize
+
+  - address: "aijournal@mail.beehiiv.com"
+    display_name: "The AI Journal"
+    mode: summarize
+
+  - address: "unusualwhales@substack.com"
+    display_name: "Unusual Whales Newsletter"
+    mode: summarize
+
+  - address: "kilocode@substack.com"
+    display_name: "Kilo"
+    mode: summarize
+
+
+# Subject line keywords — include any email whose subject contains one of these
+# (case-insensitive substring match)
+subject_keywords:
+  - "daily digest"
+  - "weekly roundup"
+  - "newsletter"
+
 # Scheduler settings (used by: python -m agent.scheduler)
 schedule:
-  hour: 6          # 0-23
-  minute: 30       # 0-59
-  timezone: "America/New_York"  # IANA timezone string
+  timezone: "America/Los_Angeles"

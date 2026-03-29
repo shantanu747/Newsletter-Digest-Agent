@@ -1,64 +1,366 @@
 <!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Newsletter Digest</title></head>
-<body style="font-family: Georgia, serif; max-width: 680px; margin: 0 auto; padding: 24px; color: #222;">
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>Newsletter Digest</title>
+  <!--[if mso]>
+  <noscript>
+    <xml>
+      <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+      </o:OfficeDocumentSettings>
+    </xml>
+  </noscript>
+  <![endif]-->
+  <style>
+    /* Apple/Anthropic-inspired refinements */
+    @media screen and (max-width: 600px) {
+      .container { padding: 16px !important; }
+      .header { padding: 32px 24px !important; }
+      .entry { padding: 28px 20px !important; }
+      .toc { padding: 20px !important; }
+      .footer { padding: 32px 24px !important; }
+      h1 { font-size: 28px !important; }
+      h2 { font-size: 20px !important; }
+    }
+    
+    /* Smooth scrolling and subtle transitions */
+    html { scroll-behavior: smooth; }
+    
+    /* Link hover states for supported clients */
+    a { transition: opacity 0.2s ease; }
+    a:hover { opacity: 0.7; }
+    
+    /* Entry card hover effect */
+    .entry-card { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .entry-card:hover { transform: translateY(-2px); }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #faf9f7; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1d1d1f; line-height: 1.6; -webkit-font-smoothing: antialiased;">
 
-  <!-- Header -->
-  <div style="border-bottom: 2px solid #333; margin-bottom: 24px; padding-bottom: 12px;">
-    <h1 style="margin: 0; font-size: 24px;">📬 Newsletter Digest</h1>
-    <p style="margin: 4px 0 0; color: #666; font-size: 14px;">
-      {{ run_date.strftime('%A, %B %-d, %Y') }} · {{ total_summarized }} newsletter{{ 's' if total_summarized != 1 }} summarized
-    </p>
-  </div>
+<!-- Background wrapper -->
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #faf9f7;">
+  <tr>
+    <td align="center" style="padding: 40px 20px;">
+      
+      <!-- Main container -->
+      <table role="presentation" class="container" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.04);">
+        
+        <!-- ====================================================== -->
+        <!-- Header                                                  -->
+        <!-- ====================================================== -->
+        <tr>
+          <td class="header" style="padding: 48px 40px 32px; background: linear-gradient(135deg, #fefefe 0%, #f8f7f5 100%); border-bottom: 1px solid #f0eeeb;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td>
+                  <!-- Logo area -->
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-bottom: 24px;">
+                    <tr>
+                      <td style="width: 44px; height: 44px; background: linear-gradient(135deg, #d4a574 0%, #c49a6c 100%); border-radius: 12px; text-align: center; vertical-align: middle; box-shadow: 0 2px 8px rgba(212,165,116,0.3);">
+                        <!-- Stylized 'N' with curved flourish -->
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; margin: 0 auto;">
+                          <path d="M7 18V6L17 18V6" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                          <circle cx="17" cy="7" r="2" fill="#ffffff" opacity="0.6"/>
+                        </svg>
+                      </td>
+                      <td style="padding-left: 14px; vertical-align: middle;">
+                        <span style="font-size: 15px; font-weight: 600; color: #86868b; letter-spacing: -0.2px;">Digest</span>
+                      </td>
+                    </tr>
+                  </table>
+                  
+                  <!-- Title -->
+                  <h1 style="margin: 0 0 8px; font-size: 32px; font-weight: 700; color: #1d1d1f; letter-spacing: -0.5px; line-height: 1.2;">Newsletter Digest</h1>
+                  
+                  <!-- Metadata -->
+                  <p style="margin: 0; font-size: 14px; color: #86868b; font-weight: 400;">
+                    {{ run_date.strftime('%A, %B %-d, %Y') }}
+                    {% if batch is defined %}<span style="color: #d4a574;">&middot;</span> Batch {{ batch.batch_index + 1 }} of {{ batch.total_batches }}{% endif %}
+                    <span style="color: #d4a574;">&middot;</span> {{ total_summarized }} newsletter{{ 's' if total_summarized != 1 }}
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-  <!-- Entries -->
-  {% for entry in entries %}
-  <div style="margin-bottom: 32px;">
-    <p style="margin: 0 0 2px; font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.05em;">
-      {{ entry.summary.sender }}
-    </p>
-    <h2 style="margin: 0 0 12px; font-size: 18px;">{{ entry.summary.subject }}</h2>
-    <div style="line-height: 1.7; font-size: 15px;">
-      {{ entry.summary.summary_text | nl2br }}
-    </div>
-    {% if entry.images %}
-    <div style="margin: 16px 0; display: flex; flex-wrap: wrap; gap: 8px;">
-      {% for img_src in entry.images %}
-      {% set safe_src = img_src | safe_url %}{% if safe_src %}<img src="{{ safe_src }}" style="max-width: 100%; height: auto; border-radius: 4px;" loading="lazy" alt="">{% endif %}
-      {% endfor %}
-    </div>
-    {% endif %}
-    {% if entry.links %}
-    <div style="margin-top: 16px; padding: 12px 16px; background: #f8f9fa; border-radius: 4px;">
-      <p style="margin: 0 0 8px; font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #666;">Further Reading</p>
-      <ul style="margin: 0; padding-left: 18px; list-style: disc;">
-        {% for link in entry.links %}
-        <li style="margin-bottom: 6px; font-size: 14px; line-height: 1.5;">
-          <a href="{{ link.url | safe_url }}" style="color: #1a73e8; text-decoration: none;">{{ link.title }}</a>
-          {% if link.context %}<span style="color: #666; font-size: 12px; display: block; margin-top: 2px;">{{ link.context }}</span>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-    {% if entry.original_email_url %}
-    <p style="margin: 12px 0 0;"><a href="{{ entry.original_email_url | safe_url }}" style="color: #1a73e8; font-size: 13px;">View original →</a></p>
-    {% endif %}
-  </div>
-  {% if not loop.last %}<hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">{% endif %}
-  {% endfor %}
+        <!-- ====================================================== -->
+        <!-- Advisor Cards (personalization — only if profile set)  -->
+        <!-- ====================================================== -->
+        {% if batch is defined and batch.advisor and (batch.advisor.relevance_text or batch.advisor.signals_text) %}
+        <tr>
+          <td style="padding: 0 40px 8px;">
+            {% if batch.advisor.relevance_text %}
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                   style="margin-bottom: 12px; border-radius: 12px; overflow: hidden;
+                          background-color: #f0f5fb; border-left: 4px solid #4a8fc2;">
+              <tr>
+                <td style="padding: 16px 20px;">
+                  <p style="margin: 0 0 10px; font-size: 11px; font-weight: 600;
+                            text-transform: uppercase; letter-spacing: 0.08em; color: #4a8fc2;">
+                    &#8627; What This Means For You
+                  </p>
+                  <div style="font-size: 14px; line-height: 1.7; color: #3a3a3c;">
+                    {{ batch.advisor.relevance_text | nl2br }}
+                  </div>
+                </td>
+              </tr>
+            </table>
+            {% endif %}
+            {% if batch.advisor.signals_text %}
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                   style="border-radius: 12px; overflow: hidden;
+                          background-color: #fdf8f0; border-left: 4px solid #d4a574;">
+              <tr>
+                <td style="padding: 16px 20px;">
+                  <p style="margin: 0 0 10px; font-size: 11px; font-weight: 600;
+                            text-transform: uppercase; letter-spacing: 0.08em; color: #b8863a;">
+                    &#9889; Action Signals
+                  </p>
+                  <div style="font-size: 14px; line-height: 1.8; color: #3a3a3c;
+                              font-family: 'Courier New', Courier, monospace;">
+                    {{ batch.advisor.signals_text | nl2br }}
+                  </div>
+                </td>
+              </tr>
+            </table>
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
 
-  <!-- Failed newsletters -->
-  {% if failed_subjects %}
-  <div style="margin-top: 32px; padding: 12px 16px; background: #fff8e1; border-left: 3px solid #f9a825; font-size: 13px; color: #555;">
-    <strong>Could not summarize:</strong> {{ failed_subjects | join(', ') }}
-  </div>
-  {% endif %}
+        <!-- ====================================================== -->
+        <!-- Table of Contents                                       -->
+        <!-- ====================================================== -->
+        {% if entries %}
+        <tr>
+          <td class="toc" style="padding: 32px 40px; background-color: #fefefe;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f8f7f5; border-radius: 16px; overflow: hidden;">
+              <tr>
+                <td style="padding: 24px;">
+                  <p style="margin: 0 0 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #86868b;">In This Issue</p>
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                    {% for entry in entries %}
+                    <tr>
+                      <td style="padding: 8px 0; border-bottom: 1px solid #e8e6e3;">
+                        <a href="#entry-{{ loop.index }}" style="text-decoration: none; display: block;">
+                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                            <tr>
+                              <td style="vertical-align: top; width: 24px;">
+                                <span style="display: inline-block; width: 20px; height: 20px; background-color: #d4a574; color: #ffffff; font-size: 11px; font-weight: 600; text-align: center; line-height: 20px; border-radius: 50%;">{{ loop.index }}</span>
+                              </td>
+                              <td style="padding-left: 12px; vertical-align: middle;">
+                                {% if entry.display_name %}
+                                <span style="font-size: 12px; color: #a1a1a6; font-weight: 500;">{{ entry.display_name }}</span>
+                                <span style="color: #d4a574;"> &mdash; </span>
+                                {% endif %}
+                                <span style="font-size: 14px; color: #1d1d1f; font-weight: 500;">{{ entry.summary.subject }}</span>
+                              </td>
+                              <td style="width: 20px; text-align: right; vertical-align: middle;">
+                                <span style="color: #d4a574; font-size: 14px;">&rarr;</span>
+                              </td>
+                            </tr>
+                          </table>
+                        </a>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {% endif %}
 
-  <!-- Footer -->
-  <div style="margin-top: 40px; padding-top: 16px; border-top: 1px solid #eee; font-size: 12px; color: #aaa; text-align: center;">
-    Generated by Newsletter Digest Agent
-  </div>
+        <!-- ====================================================== -->
+        <!-- Entries                                                 -->
+        <!-- ====================================================== -->
+        <tr>
+          <td style="padding: 0 40px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              {% for entry in entries %}
+              <tr>
+                <td id="entry-{{ loop.index }}" class="entry" style="padding: 40px 0; border-bottom: 1px solid #f0eeeb;">
+                  
+                  <!-- Entry card -->
+                  <table role="presentation" class="entry-card" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #fefefe; border-radius: 16px;">
+                    <tr>
+                      <td style="padding: 0;">
+                        
+                        <!-- Sender label + badge -->
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-bottom: 16px;">
+                          <tr>
+                            <td style="vertical-align: middle;">
+                              <span style="font-size: 12px; color: #a1a1a6; font-weight: 500; letter-spacing: 0.02em;">
+                                {{ entry.display_name or entry.summary.sender }}
+                              </span>
+                              {% if entry.is_pass_through %}
+                              <span style="margin-left: 8px; display: inline-block; font-size: 10px; font-weight: 600; color: #7c9a6a; background-color: #f0f5ec; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.04em;">Digest</span>
+                              {% endif %}
+                            </td>
+                          </tr>
+                        </table>
+
+                        <!-- Subject -->
+                        <h2 style="margin: 0 0 20px; font-size: 22px; font-weight: 600; line-height: 1.3; color: #1d1d1f; letter-spacing: -0.3px;">{{ entry.summary.subject }}</h2>
+
+                        <!-- Summary text -->
+                        <div style="line-height: 1.8; font-size: 15px; color: #3a3a3c; font-weight: 400;">
+                          {{ entry.summary.summary_text | nl2br }}
+                        </div>
+
+                        <!-- Images -->
+                        {% if entry.images %}
+                        {% set safe_images = [] %}
+                        {% for img_src in entry.images %}{% set safe_src = img_src | safe_url %}{% if safe_src %}{% set _ = safe_images.append(safe_src) %}{% endif %}{% endfor %}
+                        {% if safe_images %}
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 24px 0;">
+                          <tr>
+                            <td>
+                              {% if safe_images | length >= 2 %}
+                              <!-- 2-column image grid -->
+                              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                {% set cols = 2 %}
+                                {% for i in range(0, safe_images | length, cols) %}
+                                <tr>
+                                  {% for img_src in safe_images[i:i+cols] %}
+                                  <td width="50%" style="vertical-align: top; padding: 6px; {% if loop.index == 1 %}padding-left: 0;{% endif %}{% if loop.index == cols %}padding-right: 0;{% endif %}">
+                                    <img src="{{ img_src }}" alt="" width="100%" style="display: block; border-radius: 12px; width: 100%; height: auto; box-shadow: 0 2px 8px rgba(0,0,0,0.06);" loading="lazy">
+                                  </td>
+                                  {% endfor %}
+                                  {% if safe_images[i:i+cols] | length < cols %}
+                                  <td width="50%" style="vertical-align: top; padding: 6px; padding-right: 0;"></td>
+                                  {% endif %}
+                                </tr>
+                                {% endfor %}
+                              </table>
+                              {% else %}
+                              <!-- Single image -->
+                              <img src="{{ safe_images[0] }}" alt="" width="100%" style="display: block; border-radius: 12px; width: 100%; height: auto; box-shadow: 0 2px 8px rgba(0,0,0,0.06);" loading="lazy">
+                              {% endif %}
+                            </td>
+                          </tr>
+                        </table>
+                        {% endif %}
+                        {% endif %}
+
+                        <!-- Further Reading -->
+                        {% if entry.links %}
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top: 24px;">
+                          <tr>
+                            <td style="padding: 20px; background-color: #f8f7f5; border-radius: 12px;">
+                              <p style="margin: 0 0 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #86868b;">Further Reading</p>
+                              {% for link in entry.links %}
+                              {% set safe_href = link.url | safe_url %}
+                              {% if safe_href %}
+                              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="{% if not loop.last %}margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #ede9e4;{% endif %}">
+                                <tr>
+                                  <td>
+                                    <a href="{{ safe_href }}" style="display: block; color: #1d1d1f; font-size: 14px; line-height: 1.5; text-decoration: none;">
+                                      {{ link.context or link.title }}<span style="color: #d4a574; margin-left: 4px;">&nbsp;&rarr;</span>
+                                    </a>
+                                  </td>
+                                </tr>
+                              </table>
+                              {% endif %}
+                              {% endfor %}
+                            </td>
+                          </tr>
+                        </table>
+                        {% endif %}
+
+                        <!-- View original link -->
+                        {% if entry.original_email_url %}
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top: 16px;">
+                          <tr>
+                            <td>
+                              <a href="{{ entry.original_email_url | safe_url }}" style="color: #d4a574; font-size: 14px; font-weight: 500; text-decoration: none;">
+                                View original <span style="margin-left: 4px;">&rarr;</span>
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+                        {% endif %}
+
+                      </td>
+                    </tr>
+                  </table>
+                  
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </td>
+        </tr>
+
+        <!-- ====================================================== -->
+        <!-- Failed newsletters                                      -->
+        <!-- ====================================================== -->
+        {% if failed_subjects %}
+        <tr>
+          <td style="padding: 0 40px 32px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #fef9f3; border-radius: 12px; border-left: 3px solid #e8a87c;">
+              <tr>
+                <td style="padding: 16px 20px;">
+                  <p style="margin: 0; font-size: 13px; color: #6b5b4f; line-height: 1.5;">
+                    <strong style="color: #3a3a3c;">Could not summarize:</strong> {{ failed_subjects | join(', ') }}
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {% endif %}
+
+        <!-- ====================================================== -->
+        <!-- Footer                                                  -->
+        <!-- ====================================================== -->
+        <tr>
+          <td class="footer" style="padding: 40px; background-color: #f8f7f5; border-top: 1px solid #f0eeeb;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="text-align: center;">
+                  <!-- Logo mark -->
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto 16px;">
+                    <tr>
+                      <td style="width: 36px; height: 36px; background: linear-gradient(135deg, #d4a574 0%, #c49a6c 100%); border-radius: 10px; text-align: center; vertical-align: middle; box-shadow: 0 2px 6px rgba(212,165,116,0.25);">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; margin: 0 auto;">
+                          <path d="M7 18V6L17 18V6" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                          <circle cx="17" cy="7" r="2" fill="#ffffff" opacity="0.6"/>
+                        </svg>
+                      </td>
+                    </tr>
+                  </table>
+                  
+                  <!-- Footer text -->
+                  <p style="margin: 0 0 8px; font-size: 13px; color: #86868b; font-weight: 500;">
+                    Newsletter Digest Agent
+                  </p>
+                  {% if batch is defined %}
+                  <p style="margin: 0; font-size: 12px; color: #a1a1a6;">
+                    Batch {{ batch.batch_index + 1 }} of {{ batch.total_batches }}
+                    <span style="color: #d4a574;">&middot;</span> {{ total_summarized }} newsletter{{ 's' if total_summarized != 1 }}
+                    <span style="color: #d4a574;">&middot;</span> {{ run_date.strftime('%b %-d, %Y') }}
+                  </p>
+                  {% endif %}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+      </table>
+      <!-- /Main container -->
+      
+    </td>
+  </tr>
+</table>
+<!-- /Background wrapper -->
 
 </body>
 </html>

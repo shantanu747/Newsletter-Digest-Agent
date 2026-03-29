@@ -1,5 +1,10 @@
+# === Local docs & deployment ===
+DEPLOYMENT.txt
+com.newsletter-digest-agent.plist
+
 # === Secrets & credentials ===
 .env
+config/user_profile.yaml
 token.json
 credentials.json
 client_secret*.json
@@ -68,3 +73,8 @@ logs/
 
 # === Local examples & test data ===
 eml_examples/
+test_outputs/
+
+# === Moonshot Vision Documents ===
+Moonshot/
+HANDOVER.md

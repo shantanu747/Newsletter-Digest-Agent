@@ -6,7 +6,7 @@ import base64
 import email.utils
 import os
 import stat
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import google.auth.transport.requests
 import google.oauth2.credentials
@@ -19,7 +19,7 @@ from agent.utils.exceptions import FetchError
 from agent.utils.logger import get_logger
 from agent.utils.models import Email
 
-_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 log = get_logger(__name__)
 
@@ -29,19 +29,13 @@ class GmailFetcher(BaseFetcher):
 
     def __init__(self, token_path: str | None = None) -> None:
         self._token_path = token_path
+        self._service = None  # lazily initialized; also set directly in tests
 
-    def fetch_newsletters(self, config: AgentConfiguration) -> list[Email]:
-        """Fetch emails from Gmail and return those matching sender/keyword rules.
+    def _get_service(self, config: AgentConfiguration):
+        """Build and return the Gmail API service, refreshing credentials if needed."""
+        if self._service is not None:
+            return self._service
 
-        Args:
-            config: Fully-loaded AgentConfiguration instance.
-
-        Returns:
-            Deduplicated list of Email objects that match at least one detection rule.
-
-        Raises:
-            FetchError: Wraps any googleapiclient.errors.HttpError.
-        """
         token_path = self._token_path or config.gmail_token_path
 
         # Refuse to load a token file that is readable by group or others — OAuth
@@ -58,22 +52,39 @@ class GmailFetcher(BaseFetcher):
                 "Run scripts/gmail_auth.py to authenticate."
             )
 
+        creds = google.oauth2.credentials.Credentials.from_authorized_user_file(
+            token_path
+        )
+
+        if creds.expired and creds.refresh_token:
+            creds.refresh(google.auth.transport.requests.Request())
+
+        self._service = googleapiclient.discovery.build("gmail", "v1", credentials=creds)
+        return self._service
+
+    def fetch_newsletters(self, config: AgentConfiguration) -> list[Email]:
+        """Fetch unread emails from configured senders and return matching Email objects.
+
+        Args:
+            config: Fully-loaded AgentConfiguration instance.
+
+        Returns:
+            Deduplicated list of Email objects that match at least one detection rule.
+
+        Raises:
+            FetchError: Wraps any googleapiclient.errors.HttpError.
+        """
         try:
-            creds = google.oauth2.credentials.Credentials.from_authorized_user_file(
-                token_path
-            )
+            service = self._get_service(config)
 
-            if creds.expired and creds.refresh_token:
-                creds.refresh(google.auth.transport.requests.Request())
-
-            service = googleapiclient.discovery.build(
-                "gmail", "v1", credentials=creds
-            )
-
-            after_epoch = int(
-                (datetime.now(timezone.utc) - timedelta(hours=config.lookback_hours)).timestamp()
-            )
-            q = f"after:{after_epoch}"
+            # Build server-side query: unread inbox emails from any configured sender
+            sender_addresses = [s.address for s in config.senders]
+            if sender_addresses:
+                from_clause = " OR ".join(sender_addresses)
+                q = f"from:({from_clause}) is:unread in:inbox"
+            else:
+                # No senders configured — rely on subject keyword client-side filter only
+                q = "is:unread in:inbox"
 
             # --- Fetch all message IDs (paginated) ---
             message_ids: list[str] = []
@@ -112,12 +123,15 @@ class GmailFetcher(BaseFetcher):
         except googleapiclient.errors.HttpError as exc:
             raise FetchError(f"Gmail API error: {exc}") from exc
 
-        # --- Two-pass client-side filter + deduplication ---
+        # --- Sender allowlist filter + deduplication ---
+        sender_set = {s.address for s in config.senders}
         seen: dict[str, Email] = {}
 
-        # Pass 1: sender allowlist
+        # Pass 1: sender allowlist (server-side already filtered, but double-check)
         for em in raw_emails:
-            if em.sender.lower() in config.senders:
+            # Extract bare address from "Display Name <addr>" format
+            sender_addr = email.utils.parseaddr(em.sender)[1].lower()
+            if sender_addr in sender_set:
                 seen[em.id] = em
 
         # Pass 2: subject keywords (union — add any not yet kept)
@@ -137,6 +151,44 @@ class GmailFetcher(BaseFetcher):
             )
 
         return result
+
+    def mark_as_read(self, message_id: str) -> None:
+        """Remove the UNREAD label from a Gmail message.
+
+        Args:
+            message_id: Gmail message ID to mark as read.
+        """
+        if self._service is None:
+            log.warning("mark_as_read_skipped", reason="service not initialized", message_id=message_id)
+            return
+        try:
+            self._service.users().messages().modify(
+                userId="me",
+                id=message_id,
+                body={"removeLabelIds": ["UNREAD"]},
+            ).execute()
+            log.debug("message_marked_read", message_id=message_id)
+        except googleapiclient.errors.HttpError as exc:
+            log.warning("mark_as_read_failed", message_id=message_id, error=str(exc))
+
+    def move_to_trash(self, message_id: str) -> None:
+        """Add the TRASH label to a Gmail message.
+
+        Args:
+            message_id: Gmail message ID to move to trash.
+        """
+        if self._service is None:
+            log.warning("move_to_trash_skipped", reason="service not initialized", message_id=message_id)
+            return
+        try:
+            self._service.users().messages().modify(
+                userId="me",
+                id=message_id,
+                body={"addLabelIds": ["TRASH"]},
+            ).execute()
+            log.debug("message_moved_to_trash", message_id=message_id)
+        except googleapiclient.errors.HttpError as exc:
+            log.warning("move_to_trash_failed", message_id=message_id, error=str(exc))
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -172,6 +224,7 @@ class GmailFetcher(BaseFetcher):
             subject=subject_header,
             received_at=received_at,
             raw_html=html_body,
+            gmail_message_id=msg_id,
         )
 
     def _extract_body(self, payload: dict) -> str:

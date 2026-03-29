@@ -5,7 +5,8 @@ import pytest
 
 from agent.scheduler import DigestScheduler
 from agent.utils.exceptions import FetchError
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from datetime import timedelta
 
 
 class TestDigestScheduler:
@@ -27,12 +28,10 @@ class TestDigestScheduler:
 
         # trigger is passed as a keyword argument
         trigger = call_args.kwargs["trigger"]
-        assert isinstance(trigger, CronTrigger)
+        assert isinstance(trigger, IntervalTrigger)
 
-        # Verify the trigger fields match the config values
-        field_map = {f.name: f for f in trigger.fields}
-        assert str(mock_config.schedule_hour) in str(field_map["hour"])
-        assert str(mock_config.schedule_minute) in str(field_map["minute"])
+        # Verify the trigger interval matches config poll_interval_hours
+        assert trigger.interval == timedelta(hours=mock_config.poll_interval_hours)
 
     def test_start_calls_scheduler_start(self, mock_config, mocker):
         mock_scheduler_cls = mocker.patch("agent.scheduler.BlockingScheduler")
@@ -96,21 +95,20 @@ class TestDigestScheduler:
         DigestScheduler(mock_config)
         mock_scheduler_cls.assert_called_once_with(timezone=mock_config.schedule_timezone)
 
-    def test_start_next_run_unknown_when_no_jobs(self, mock_config, mocker):
-        """When get_jobs() returns empty list, next_run falls back to 'unknown'."""
+    def test_start_logs_poll_interval_hours(self, mock_config, mocker):
+        """scheduler_started log includes poll_interval_hours matching config."""
         mock_scheduler_cls = mocker.patch("agent.scheduler.BlockingScheduler")
         mock_scheduler = mock_scheduler_cls.return_value
-        # Simulate get_jobs() returning [] even after add_job (edge-case guard)
         mock_scheduler.get_jobs.return_value = []
         mock_log = mocker.patch("agent.scheduler.log")
 
         scheduler = DigestScheduler(mock_config)
         scheduler.start()
 
-        # Locate the scheduler_started log call and verify next_run is "unknown"
+        # Locate the scheduler_started log call and verify poll_interval_hours is present
         scheduler_started_calls = [
             call for call in mock_log.info.call_args_list
             if call[0][0] == "scheduler_started"
         ]
         assert scheduler_started_calls, "Expected a 'scheduler_started' log entry"
-        assert scheduler_started_calls[0][1]["next_run"] == "unknown"
+        assert scheduler_started_calls[0][1]["poll_interval_hours"] == mock_config.poll_interval_hours

@@ -454,7 +454,7 @@ class TestImageExtraction:
         """Images from a trusted CDN (substackcdn.com) are included."""
         html = (
             "<html><body>"
-            '<img src="https://substackcdn.com/image/fetch/hero.jpg" width="600">'
+            '<p><img src="https://substackcdn.com/image/fetch/hero.jpg" width="600"></p>'
             "</body></html>"
         )
         result = _parse(_make_email(raw_html=html))
