@@ -106,7 +106,12 @@ def _parse_sender(raw: dict) -> SenderConfig:
 
     summary_word_target = raw.get("summary_word_target")
     if summary_word_target is not None:
-        summary_word_target = int(summary_word_target)
+        try:
+            summary_word_target = int(summary_word_target)
+        except (ValueError, TypeError):
+            raise ConfigurationError(
+                f"summary_word_target for '{address}' must be a valid integer, got '{summary_word_target}'."
+            )
         if summary_word_target < 50:
             raise ConfigurationError(
                 f"summary_word_target for '{address}' must be >= 50, got {summary_word_target}."
