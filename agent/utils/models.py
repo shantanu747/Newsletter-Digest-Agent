@@ -144,7 +144,7 @@ class AdvisorAnalysis:
     """Actionable buy/sell/watch signals synthesized across all newsletters."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class DigestBatch:
     """A group of up to batch_size emails assembled into one digest email."""
 
