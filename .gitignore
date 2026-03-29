@@ -1,5 +1,6 @@
-# === Local docs ===
+# === Local docs & deployment ===
 DEPLOYMENT.txt
+com.newsletter-digest-agent.plist
 
 # === Secrets & credentials ===
 .env
