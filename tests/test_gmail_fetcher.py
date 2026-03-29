@@ -419,6 +419,30 @@ class TestGmailFetcherFetchNewsletters:
         assert "is:unread" in call_kwargs["q"]
 
 
+    def test_service_is_cached_after_first_call(self, mocker, mock_config):
+        """_get_service() must assign self._service so mark_as_read/move_to_trash can use it."""
+        mock_stat = MagicMock()
+        mock_stat.st_mode = 0o100600
+        mocker.patch("agent.fetchers.gmail_fetcher.os.stat", return_value=mock_stat)
+        mock_creds = MagicMock()
+        mocker.patch(
+            "google.oauth2.credentials.Credentials.from_authorized_user_file",
+            return_value=mock_creds,
+        )
+        mock_service = _build_gmail_service_mock([])
+        mock_build = mocker.patch("googleapiclient.discovery.build", return_value=mock_service)
+
+        from agent.fetchers.gmail_fetcher import GmailFetcher  # noqa: PLC0415
+
+        fetcher = GmailFetcher(token_path=mock_config.gmail_token_path)
+        fetcher._get_service(mock_config)
+        fetcher._get_service(mock_config)
+
+        # build() must be called only once — second call returns the cached service
+        mock_build.assert_called_once()
+        assert fetcher._service is mock_service
+
+
 # ---------------------------------------------------------------------------
 # US4 — keyword detection tests
 # ---------------------------------------------------------------------------

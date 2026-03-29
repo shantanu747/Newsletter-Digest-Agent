@@ -141,3 +141,35 @@ class TestPreviewMode:
         agent = NewsletterAgent(config=mock_config, preview=True)
         agent.run()
         mock_trash.assert_not_called()
+
+
+class TestMainSchedulerRouting:
+    """main() must route to DigestScheduler or single run based on flags."""
+
+    def _call_main(self, mocker, argv: list[str]):
+        mocker.patch("sys.argv", ["agent"] + argv)
+        mocker.patch("agent.runner.load_config", return_value=mocker.MagicMock())
+
+    def test_once_flag_skips_scheduler(self, mocker):
+        """--once must run a single poll and never start the scheduler."""
+        self._call_main(mocker, ["--once"])
+        mock_run = mocker.patch("agent.runner.NewsletterAgent.run")
+        mock_scheduler = mocker.patch("agent.scheduler.DigestScheduler.start")
+
+        from agent.runner import main
+        main()
+
+        mock_run.assert_called_once()
+        mock_scheduler.assert_not_called()
+
+    def test_no_flags_starts_scheduler(self, mocker):
+        """No flags must start DigestScheduler instead of a direct run."""
+        self._call_main(mocker, [])
+        mocker.patch("agent.runner.NewsletterAgent.run")
+        mock_scheduler_cls = mocker.patch("agent.scheduler.DigestScheduler")
+
+        from agent.runner import main
+        main()
+
+        mock_scheduler_cls.assert_called_once()
+        mock_scheduler_cls.return_value.start.assert_called_once()

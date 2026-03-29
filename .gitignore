@@ -1,3 +1,6 @@
+# === Local docs ===
+DEPLOYMENT.txt
+
 # === Secrets & credentials ===
 .env
 config/user_profile.yaml

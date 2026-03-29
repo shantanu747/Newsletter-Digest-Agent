@@ -262,12 +262,16 @@ def main() -> None:
         print(f"Configuration error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    agent = NewsletterAgent(config=config, dry_run=args.dry_run, preview=args.preview)
-    try:
-        agent.run()
-    except FetchError as exc:
-        log.error("fatal_error", error=str(exc))
-        sys.exit(1)
+    if args.once or args.dry_run or args.preview:
+        agent = NewsletterAgent(config=config, dry_run=args.dry_run, preview=args.preview)
+        try:
+            agent.run()
+        except FetchError as exc:
+            log.error("fatal_error", error=str(exc))
+            sys.exit(1)
+    else:
+        from agent.scheduler import DigestScheduler
+        DigestScheduler(config=config).start()
 
 
 if __name__ == "__main__":

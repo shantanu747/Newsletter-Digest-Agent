@@ -59,7 +59,8 @@ class GmailFetcher(BaseFetcher):
         if creds.expired and creds.refresh_token:
             creds.refresh(google.auth.transport.requests.Request())
 
-        return googleapiclient.discovery.build("gmail", "v1", credentials=creds)
+        self._service = googleapiclient.discovery.build("gmail", "v1", credentials=creds)
+        return self._service
 
     def fetch_newsletters(self, config: AgentConfiguration) -> list[Email]:
         """Fetch unread emails from configured senders and return matching Email objects.
