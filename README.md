@@ -82,7 +82,7 @@ Reading newsletters takes time. This agent solves that by running on a daily sch
 ## Prerequisites
 
 - Python 3.11+
-- A Google Cloud project with Gmail API enabled
+- A Google account with Gmail
 - An Anthropic API key
 - Git
 
@@ -111,7 +111,23 @@ source .venv/bin/activate      # macOS/Linux
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
+### 4. Set up Google Cloud and enable the Gmail API
+
+This is a one-time step to create the OAuth credentials the agent uses to read your Gmail.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (or select an existing one).
+2. Navigate to **APIs & Services → Library**, search for **Gmail API**, and click **Enable**.
+3. Go to **APIs & Services → OAuth consent screen**:
+   - Choose **External** user type and click **Create**.
+   - Fill in an app name (e.g. "Newsletter Digest"), your email as the support contact, and click **Save and Continue**.
+   - On the **Scopes** screen that follows, click **Save and Continue** again (no scopes need to be added manually).
+   - On the **Test users** screen, add your own Gmail address so the app can authenticate against your account.
+4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
+   - Application type: **Desktop app**
+   - Give it any name and click **Create**.
+5. Click **Download JSON** on the newly created credential, rename the file to `credentials.json`, and place it in the project root directory (it is gitignored and will never be committed).
+
+### 5. Configure environment variables
 
 ```bash
 cp .env.example .env
@@ -123,38 +139,34 @@ Edit `.env` and fill in:
 # Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Gmail (fetching + delivery)
+# Gmail OAuth — path where token.json will be saved after running gmail_auth.py
 GMAIL_OAUTH_TOKEN_PATH=token.json
+
+# Digest delivery — the address that will RECEIVE the daily digest
 DELIVERY_EMAIL=you@gmail.com
+
+# SMTP — the Gmail account used to SEND the digest (can be the same address)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=you@gmail.com
-SMTP_PASSWORD=your-gmail-app-password
+SMTP_PASSWORD=your-16-char-app-password
 ```
 
-### 5. Configure Gmail OAuth
+> **SMTP_PASSWORD is a Gmail App Password, not your regular Gmail password.**
+> Generate one at: Google Account → Security → 2-Step Verification → App passwords.
+> Select "Mail" as the app and copy the 16-character password.
+
+### 6. Authenticate with Gmail (one-time)
 
 ```bash
 python scripts/gmail_auth.py
 ```
 
-This opens a browser window for OAuth consent. Credentials are saved to `token.json` (gitignored).
-
-### 6. Initialize spec-kit
-
-This project uses [spec-kit](https://github.com/github/spec-kit) for specification-driven development. Once your environment is ready, use these commands to drive each phase:
-
-```bash
-/specify   # define or review the project specification
-/plan      # generate or update the phased implementation plan
-/tasks     # break the current phase into actionable tasks
-```
-
-The architectural rules governing this project are captured in the **Spec-Kit Constitution** section of `PLANNING.md`. Paste that constitution as your `/speckit.constitution` prompt when initializing.
+This opens a browser window for OAuth consent. Sign in with your Gmail account and grant read access. Credentials are saved to `token.json` (gitignored). You only need to run this once — the agent refreshes the token automatically on subsequent runs.
 
 ### 7. Configure newsletters
 
-Edit `config/newsletters.yaml`:
+Edit `config/newsletters.yaml` to add the sender addresses and/or subject keywords for the newsletters you want to track:
 
 ```yaml
 senders:
@@ -172,20 +184,26 @@ max_newsletters_per_run: 20
 summary_word_target: 225
 ```
 
+Add at least one sender address or keyword — without this, no newsletters will be detected.
+
 ### 8. Run manually (test)
 
 ```bash
-python -m agent.runner --dry-run    # fetches and summarizes, no email sent
-python -m agent.runner              # full run, sends digest
+python -m agent.runner --dry-run    # fetches and summarizes, prints output — no email sent
+python -m agent.runner              # full run: fetches, summarizes, and delivers digest
 ```
+
+`--dry-run` prints each newsletter's subject line, character count, and a preview of its generated summary to stdout. Use this to confirm newsletters are being detected and summaries look correct before enabling delivery.
 
 ### 9. Schedule daily runs
 
 ```bash
-python -m agent.scheduler           # starts APScheduler process
+python -m agent.scheduler           # starts APScheduler process (runs until interrupted)
 ```
 
-Or add to crontab (runs at 6:30am daily):
+The schedule is configured in `config/newsletters.yaml` under the `schedule:` key. Keep this process alive with `screen`, `tmux`, or a system service (e.g. `systemd` on Linux, `launchd` on macOS).
+
+Or add directly to crontab (runs at 6:30am daily):
 
 ```
 30 6 * * * /path/to/.venv/bin/python -m agent.runner
@@ -269,6 +287,14 @@ newsletter-digest-agent/
 ## Contributing
 
 Pull requests are welcome. For major changes, open an issue first to discuss what you'd like to change.
+
+This project uses [spec-kit](https://github.com/github/spec-kit) for specification-driven development. The architectural rules are captured in `PLANNING.md`. When contributing new features, use these commands to drive each phase:
+
+```bash
+/specify   # define or review the project specification
+/plan      # generate or update the phased implementation plan
+/tasks     # break the current phase into actionable tasks
+```
 
 ---
 
