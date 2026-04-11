@@ -37,6 +37,10 @@
     /* Entry card hover effect */
     .entry-card { transition: transform 0.2s ease, box-shadow 0.2s ease; }
     .entry-card:hover { transform: translateY(-2px); }
+
+    /* Idea-based digest format */
+    .idea-title { font-size: 14px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.1px; margin: 0 0 6px; }
+    .idea-body { font-size: 15px; font-weight: 400; color: #3a3a3c; line-height: 1.7; margin: 0; }
   </style>
 </head>
 <body style="margin: 0; padding: 0; background-color: #faf9f7; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1d1d1f; line-height: 1.6; -webkit-font-smoothing: antialiased;">
@@ -209,10 +213,24 @@
                         <!-- Subject -->
                         <h2 style="margin: 0 0 20px; font-size: 22px; font-weight: 600; line-height: 1.3; color: #1d1d1f; letter-spacing: -0.3px;">{{ entry.summary.subject }}</h2>
 
-                        <!-- Summary text -->
+                        <!-- Summary / Ideas -->
+                        {% if entry.summary.ideas %}
+                        <div>
+                          {% for idea in entry.summary.ideas %}
+                          <div style="margin-bottom: 18px;">
+                            <p class="idea-title" style="font-size: 14px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.1px; margin: 0 0 6px;">{{ idea.title }}</p>
+                            <p class="idea-body" style="font-size: 15px; font-weight: 400; color: #3a3a3c; line-height: 1.7; margin: 0;">{{ idea.summary_text | nl2br }}</p>
+                          </div>
+                          {% if not loop.last %}
+                          <hr style="border: none; border-top: 1px solid #f0eeeb; margin: 0 0 18px;">
+                          {% endif %}
+                          {% endfor %}
+                        </div>
+                        {% else %}
                         <div style="line-height: 1.8; font-size: 15px; color: #3a3a3c; font-weight: 400;">
                           {{ entry.summary.summary_text | nl2br }}
                         </div>
+                        {% endif %}
 
                         <!-- Images -->
                         {% if entry.images %}

@@ -104,10 +104,14 @@ class NewsletterAgent:
                     display_name = email.utils.parseaddr(em.sender)[0] or em.sender
 
                 try:
-                    summary = self._summarizer.summarize(parsed)
+                    idea_mode = self.config.digest_format == "idea_based"
+                    if idea_mode and not parsed.is_pass_through:
+                        summary = self._summarizer.summarize_as_ideas(parsed, self.config.user_profile)
+                    else:
+                        summary = self._summarizer.summarize(parsed)
                     entries.append(DigestEntry(
                         summary=summary,
-                        links=parsed.links,
+                        links=() if idea_mode else parsed.links,
                         images=parsed.images,
                         is_pass_through=parsed.is_pass_through,
                         display_name=display_name,
@@ -117,6 +121,8 @@ class NewsletterAgent:
                         "newsletter_processed",
                         message_id=em.id,
                         sender=em.sender,
+                        digest_format=self.config.digest_format,
+                        idea_count=len(summary.ideas) if summary.ideas else None,
                         word_count=summary.word_count,
                         pass_through=parsed.is_pass_through,
                     )
@@ -187,9 +193,15 @@ class NewsletterAgent:
                 for entry in entries:
                     mode = "[PASS-THROUGH]" if entry.is_pass_through else "[SUMMARIZED]"
                     print(f"\n{mode} [{entry.display_name}] {entry.summary.subject}")
-                    print(f"Words: {entry.summary.word_count}")
-                    preview = entry.summary.summary_text
-                    print(preview[:300] + "..." if len(preview) > 300 else preview)
+                    if entry.summary.ideas:
+                        for idea in entry.summary.ideas:
+                            print(f"  • {idea.title}")
+                            body = idea.summary_text
+                            print(f"    {body[:200] + '...' if len(body) > 200 else body}")
+                    else:
+                        print(f"Words: {entry.summary.word_count}")
+                        preview = entry.summary.summary_text
+                        print(preview[:300] + "..." if len(preview) > 300 else preview)
             else:
                 digest_subject = (
                     f"Newsletter Digest — {batch_label} — "

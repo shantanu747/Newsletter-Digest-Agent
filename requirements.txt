@@ -27,3 +27,6 @@ structlog>=24.4.0
 # Testing
 pytest>=8.3.0
 pytest-mock>=3.14.0
+
+# Linting
+ruff>=0.8.0

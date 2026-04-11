@@ -9,7 +9,7 @@ from pathlib import Path
 import jinja2
 
 from agent.utils.logger import get_logger
-from agent.utils.models import DigestBatch, DigestEntry
+from agent.utils.models import DigestBatch
 
 log = get_logger(__name__)
 
