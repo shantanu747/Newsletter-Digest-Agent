@@ -15,6 +15,10 @@ max_newsletters_per_run: 20
 # Target word count for each AI-generated summary (default: 225)
 summary_word_target: 225
 
+# Digest format: "classic" produces a word-count summary; "idea_based" decomposes each email
+# into discrete ideas filtered for relevance. Switch to compare before/after.
+digest_format: "idea_based"  # "classic" | "idea_based"
+
 # Summary length mode: "fixed" uses summary_word_target; "percentage" scales by source length
 summary_length_mode: "percentage"  # "fixed" | "percentage"
 summary_percentage: 18             # % of source word count (used when mode=percentage)

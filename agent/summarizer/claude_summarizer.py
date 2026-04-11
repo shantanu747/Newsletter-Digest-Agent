@@ -5,6 +5,7 @@ For pass_through emails, bypasses Claude entirely and wraps the pre-processed te
 """
 
 import random
+import re
 import time
 from datetime import datetime, timezone
 
@@ -12,7 +13,7 @@ import anthropic
 
 from agent.utils.exceptions import SummarizationError
 from agent.utils.logger import get_logger
-from agent.utils.models import Email, Summary
+from agent.utils.models import Email, Idea, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
 _SYSTEM_PROMPT_TEMPLATE = (
@@ -21,6 +22,73 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "Highlight the 3–5 most important points. Do not include greetings, unsubscribe "
     "text, or navigation labels."
 )
+
+_IDEA_SYSTEM_PROMPT_TEMPLATE = """\
+You are a plugged-in, well-informed advisor who cuts through noise. \
+You do not sugarcoat. You do not pad. \
+You present information in a grounded, rational, and succinct way.
+
+{profile_section}\
+Given the newsletter text below, identify each discrete idea. \
+For each idea that is relevant to the reader's holdings, interests, \
+or that would make a well-informed person meaningfully more aware, output:
+
+IDEA: <short title (8 words or fewer)>
+<1–3 sentence summary. No filler. No hedging. No transitional phrases.>
+
+If the entire email is a single idea, output exactly one IDEA entry.
+Output only ideas derivable from the text provided — do not infer or fabricate.
+Do not include URLs. Do not include links.
+
+If no ideas are relevant, output exactly:
+IDEA: No High-Signal Content
+Nothing in this newsletter warrants your attention.\
+"""
+
+
+def _build_profile_section(user_profile) -> str:
+    """Build a reader-context block to inject into the idea-based system prompt."""
+    if user_profile is None:
+        return ""
+    lines = []
+    if user_profile.portfolio:
+        holdings = ", ".join(f"{h['ticker']} ({h['name']})" for h in user_profile.portfolio)
+        lines.append(f"Reader holds: {holdings}")
+    if user_profile.watchlist:
+        watching = ", ".join(f"{h['ticker']} ({h['name']})" for h in user_profile.watchlist)
+        lines.append(f"Reader is watching: {watching}")
+    if user_profile.interests:
+        lines.append(f"Reader's interests: {', '.join(user_profile.interests)}")
+    if user_profile.custom_prompts:
+        lines.append("Standing instructions: " + " ".join(user_profile.custom_prompts))
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n\n"
+
+
+def _parse_ideas(raw: str) -> tuple[Idea, ...]:
+    """Parse a Claude response containing IDEA: blocks into a tuple of Idea objects.
+
+    If the response contains no parseable IDEA blocks, returns a single
+    'No High-Signal Content' fallback idea to satisfy FR-007.
+    """
+    segments = re.split(r"(?:^|\n)IDEA:\s*", raw.strip())
+    ideas: list[Idea] = []
+    for seg in segments:
+        seg = seg.strip()
+        if not seg:
+            continue
+        lines = seg.split("\n", 1)
+        title = lines[0].strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+        if title:
+            ideas.append(Idea(title=title, summary_text=body))
+    if not ideas:
+        return (Idea(
+            title="No High-Signal Content",
+            summary_text="Nothing in this newsletter warrants your attention.",
+        ),)
+    return tuple(ideas)
 
 
 class ClaudeSummarizer:
@@ -137,4 +205,83 @@ class ClaudeSummarizer:
 
         raise SummarizationError(
             f"Summarization failed after 3 attempts for message {email.id}: {last_exc}"
+        ) from last_exc
+
+    def summarize_as_ideas(self, email: Email, user_profile) -> Summary:
+        """Decompose *email* into discrete ideas using the idea-based digest format.
+
+        Filters ideas for relevance using the reader's profile from *user_profile*
+        (interests, portfolio, watchlist, custom_prompts). When *user_profile* is
+        None, the model applies general-informedness filtering only.
+
+        Retries up to 3 times with exponential back-off on transient API errors.
+        Raises SummarizationError when all attempts are exhausted.
+
+        Args:
+            email: The newsletter email to decompose.
+            user_profile: Reader profile for relevance filtering, or None.
+
+        Returns:
+            A Summary with ideas populated and summary_text="" / word_count=0.
+
+        Raises:
+            SummarizationError: If all 3 attempts fail.
+        """
+        self._log.info(
+            "newsletter_idea_decomposition_started",
+            newsletter_id=email.id,
+            sender=email.sender,
+            digest_format="idea_based",
+        )
+
+        profile_section = _build_profile_section(user_profile)
+        system_prompt = _IDEA_SYSTEM_PROMPT_TEMPLATE.format(profile_section=profile_section)
+        user_content = (
+            f"Decompose the following newsletter into ideas:\n---\n"
+            f"{email.plain_text or email.raw_html[:8000]}\n---"
+        )
+
+        last_exc = None
+        for attempt in range(3):
+            try:
+                self._limiter.acquire()
+                response = self._client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=2048,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_content}],
+                )
+                raw = response.content[0].text.strip()
+                ideas = _parse_ideas(raw)
+                self._log.info(
+                    "newsletter_ideas_extracted",
+                    newsletter_id=email.id,
+                    sender=email.sender,
+                    digest_format="idea_based",
+                    idea_count=len(ideas),
+                    attempt=attempt + 1,
+                )
+                return Summary(
+                    email_id=email.id,
+                    sender=email.sender,
+                    subject=email.subject,
+                    summary_text="",
+                    word_count=0,
+                    generated_at=datetime.now(timezone.utc),
+                    ideas=ideas,
+                )
+            except (anthropic.APIError, anthropic.RateLimitError) as exc:
+                last_exc = exc
+                wait = 1 * (2 ** attempt) + random.uniform(0, 1)
+                self._log.warning(
+                    "idea_decomposition_retry",
+                    newsletter_id=email.id,
+                    attempt=attempt + 1,
+                    wait=round(wait, 2),
+                    error=str(exc),
+                )
+                time.sleep(wait)
+
+        raise SummarizationError(
+            f"Idea decomposition failed after 3 attempts for message {email.id}: {last_exc}"
         ) from last_exc

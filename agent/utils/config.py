@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
@@ -56,6 +57,10 @@ class AgentConfiguration:
     poll_interval_hours: int = 4
     batch_size: int = 10
     max_newsletters_per_run: int = 20
+
+    # Digest format
+    digest_format: Literal["classic", "idea_based"] = "classic"
+    """Controls summarization output shape. 'classic' = word-count summary; 'idea_based' = discrete ideas."""
 
     # Summarization
     summary_word_target: int = 225
@@ -212,12 +217,19 @@ def load_config(yaml_path: str = "config/newsletters.yaml", profile_path: str = 
     if batch_size < 1:
         raise ConfigurationError(f"batch_size must be >= 1, got {batch_size}.")
 
+    digest_format = str(raw.get("digest_format", "classic"))
+    if digest_format not in ("classic", "idea_based"):
+        raise ConfigurationError(
+            f"Invalid digest_format '{digest_format}'. Must be 'classic' or 'idea_based'."
+        )
+
     cfg = AgentConfiguration(
         senders=senders,
         subject_keywords=[kw.lower() for kw in (raw.get("subject_keywords") or [])],
         poll_interval_hours=int(raw.get("poll_interval_hours", 4)),
         batch_size=batch_size,
         max_newsletters_per_run=int(raw.get("max_newsletters_per_run", 20)),
+        digest_format=digest_format,
         summary_word_target=int(raw.get("summary_word_target", 225)),
         summary_length_mode=str(raw.get("summary_length_mode", "fixed")),
         summary_percentage=int(raw.get("summary_percentage", 18)),

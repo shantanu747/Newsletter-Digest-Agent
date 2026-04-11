@@ -85,6 +85,17 @@ class Email:
 
 
 @dataclass(frozen=True)
+class Idea:
+    """A discrete concept extracted from a newsletter email in idea-based digest mode."""
+
+    title: str
+    """Short label for the idea (8 words or fewer)."""
+
+    summary_text: str
+    """1–3 sentence summary of the idea. No filler, no hedging."""
+
+
+@dataclass(frozen=True)
 class Summary:
     """An AI-generated summary of a single newsletter email."""
 
@@ -98,13 +109,17 @@ class Summary:
     """Copied from source Email.subject."""
 
     summary_text: str
-    """Generated summary prose (or pass-through text for pass_through senders)."""
+    """Generated summary prose (or pass-through text for pass_through senders).
+    Empty string in idea_based mode — use ideas instead."""
 
     word_count: int
-    """Actual word count of summary_text."""
+    """Actual word count of summary_text. Zero in idea_based mode."""
 
     generated_at: datetime
     """UTC-aware datetime when the summary was generated."""
+
+    ideas: tuple[Idea, ...] | None = None
+    """Decomposed ideas in idea_based digest mode. None in classic mode."""
 
 
 @dataclass(frozen=True)
