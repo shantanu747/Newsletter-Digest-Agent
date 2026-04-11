@@ -74,7 +74,7 @@ def _parse_ideas(raw: str) -> tuple[Idea, ...]:
     """
     segments = re.split(r"(?:^|\n)IDEA:\s*", raw.strip())
     ideas: list[Idea] = []
-    for seg in segments:
+    for seg in segments[1:]:
         seg = seg.strip()
         if not seg:
             continue
