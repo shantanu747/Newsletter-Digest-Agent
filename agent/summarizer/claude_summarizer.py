@@ -29,20 +29,17 @@ You do not sugarcoat. You do not pad. \
 You present information in a grounded, rational, and succinct way.
 
 {profile_section}\
-Given the newsletter text below, identify each discrete idea. \
-For each idea that is relevant to the reader's holdings, interests, \
-or that would make a well-informed person meaningfully more aware, output:
+Given the newsletter text below, identify every discrete, significant idea. \
+For each idea, output:
 
 IDEA: <short title (8 words or fewer)>
-<1–3 sentence summary. No filler. No hedging. No transitional phrases.>
+<1–3 sentence summary. No filler. No hedging. No transitional phrases. \
+Where the idea directly relates to the reader's holdings or interests, \
+note that connection briefly within the summary.>
 
 If the entire email is a single idea, output exactly one IDEA entry.
 Output only ideas derivable from the text provided — do not infer or fabricate.
-Do not include URLs. Do not include links.
-
-If no ideas are relevant, output exactly:
-IDEA: No High-Signal Content
-Nothing in this newsletter warrants your attention.\
+Do not include URLs. Do not include links.\
 """
 
 
@@ -70,7 +67,7 @@ def _parse_ideas(raw: str) -> tuple[Idea, ...]:
     """Parse a Claude response containing IDEA: blocks into a tuple of Idea objects.
 
     If the response contains no parseable IDEA blocks, returns a single
-    'No High-Signal Content' fallback idea to satisfy FR-007.
+    'Content Unavailable' fallback idea.
     """
     segments = re.split(r"(?:^|\n)IDEA:\s*", raw.strip())
     ideas: list[Idea] = []
@@ -85,8 +82,8 @@ def _parse_ideas(raw: str) -> tuple[Idea, ...]:
             ideas.append(Idea(title=title, summary_text=body))
     if not ideas:
         return (Idea(
-            title="No High-Signal Content",
-            summary_text="Nothing in this newsletter warrants your attention.",
+            title="Content Unavailable",
+            summary_text="Unable to extract ideas from this newsletter.",
         ),)
     return tuple(ideas)
 
@@ -210,16 +207,16 @@ class ClaudeSummarizer:
     def summarize_as_ideas(self, email: Email, user_profile) -> Summary:
         """Decompose *email* into discrete ideas using the idea-based digest format.
 
-        Filters ideas for relevance using the reader's profile from *user_profile*
-        (interests, portfolio, watchlist, custom_prompts). When *user_profile* is
-        None, the model applies general-informedness filtering only.
+        *user_profile* supplies reader context for inline connection notes only;
+        it does not filter ideas. When *user_profile* is None, no profile context
+        is injected.
 
         Retries up to 3 times with exponential back-off on transient API errors.
         Raises SummarizationError when all attempts are exhausted.
 
         Args:
             email: The newsletter email to decompose.
-            user_profile: Reader profile for relevance filtering, or None.
+            user_profile: Reader profile for framing context, or None.
 
         Returns:
             A Summary with ideas populated and summary_text="" / word_count=0.
