@@ -9,7 +9,7 @@ from pathlib import Path
 import jinja2
 
 from agent.utils.logger import get_logger
-from agent.utils.models import DigestBatch
+from agent.utils.models import DigestBatch, SignalsReport
 
 log = get_logger(__name__)
 
@@ -26,6 +26,18 @@ def _nl2br(value: str) -> markupsafe.Markup:
 def _safe_url(url: str) -> str:
     """Return *url* only if it starts with an allowed scheme, else ''."""
     return url if any(url.startswith(s) for s in _SAFE_URL_SCHEMES) else ""
+
+
+def _make_env() -> jinja2.Environment:
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(
+            str(Path(__file__).parent.parent.parent / "templates")
+        ),
+        autoescape=True,
+    )
+    env.filters["nl2br"] = _nl2br
+    env.filters["safe_url"] = _safe_url
+    return env
 
 
 class DigestBuilder:
@@ -54,15 +66,7 @@ class DigestBuilder:
         failed_subjects = failed_subjects or []
         _total_summarized = total_summarized if total_summarized is not None else len(batch.entries)
 
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(
-                str(Path(__file__).parent.parent.parent / "templates")
-            ),
-            autoescape=True,
-        )
-        env.filters["nl2br"] = _nl2br
-        env.filters["safe_url"] = _safe_url
-
+        env = _make_env()
         template = env.get_template("digest.html.j2")
 
         log.info(
@@ -82,3 +86,23 @@ class DigestBuilder:
             total_summarized=_total_summarized,
             failed_subjects=failed_subjects,
         )
+
+
+def build_signals(report: SignalsReport, run_date: datetime) -> str:
+    """Render a SignalsReport into an HTML report string."""
+    env = _make_env()
+    template = env.get_template("signals.html.j2")
+
+    log.info(
+        "signals_report_rendered",
+        window_days=report.window_days,
+        risk_count=len(report.risks),
+        opportunity_count=len(report.opportunities),
+        emerging_count=len(report.emerging),
+        fading_count=len(report.fading),
+        watch_count=len(report.watch),
+        divergence_count=len(report.divergences),
+        is_cold_start=report.is_cold_start,
+    )
+
+    return template.render(report=report, run_date=run_date)
