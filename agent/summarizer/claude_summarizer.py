@@ -13,7 +13,7 @@ import anthropic
 
 from agent.utils.exceptions import SummarizationError
 from agent.utils.logger import get_logger
-from agent.utils.models import Email, Idea, Summary
+from agent.utils.models import Email, EntityMention, Idea, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
 _SYSTEM_PROMPT_TEMPLATE = (
@@ -37,10 +37,71 @@ IDEA: <short title (8 words or fewer)>
 Where the idea directly relates to the reader's holdings or interests, \
 note that connection briefly within the summary.>
 
+{entity_section}\
 If the entire email is a single idea, output exactly one IDEA entry.
 Output only ideas derivable from the text provided — do not infer or fabricate.
 Do not include URLs. Do not include links.\
 """
+
+_ENTITY_TYPES = (
+    "company", "person", "country", "policy", "sector",
+    "technology", "asset", "institution", "event", "concept",
+)
+
+_ENTITIES_LINE_PREFIX = "ENTITIES:"
+
+_ENTITY_MENTION_RE = re.compile(
+    r"^(?P<name>.+?)\s*\(\s*(?P<type>[a-zA-Z_]+)\s*,\s*(?P<sentiment>positive|negative|neutral)\s*\)$"
+)
+
+
+def _build_entity_section(knowledge_config) -> str:
+    """Build the ENTITIES: instruction block. Empty when knowledge extraction is off.
+
+    Returning "" leaves the formatted template byte-identical to the pre-extraction
+    prompt — this is what keeps SC-001 provable rather than merely hoped for.
+    """
+    if knowledge_config is None or not knowledge_config.enabled:
+        return ""
+    types = ", ".join(_ENTITY_TYPES)
+    return (
+        f"After each idea's summary, add one trailing line starting with "
+        f"'{_ENTITIES_LINE_PREFIX} ' listing up to {knowledge_config.max_entities_per_idea} "
+        f"entities discussed in that idea, formatted as "
+        f"'Name (type, sentiment); Name (type, sentiment)'. Permitted types: {types}. "
+        f"Sentiment is one of positive, negative, neutral, and reflects how *this idea* "
+        f"frames that entity — not the newsletter's overall tone. "
+        f"Example: {_ENTITIES_LINE_PREFIX} Nvidia (company, negative); "
+        f"export controls (policy, negative)\n\n"
+    )
+
+
+def _parse_entity_mentions(line: str, max_entities: int | None = None) -> tuple[EntityMention, ...]:
+    """Parse an 'ENTITIES: ...' line body into EntityMention objects.
+
+    Malformed entries are skipped individually rather than failing the whole line.
+    """
+    mentions: list[EntityMention] = []
+    for chunk in line.split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        match = _ENTITY_MENTION_RE.match(chunk)
+        if not match:
+            continue
+        name = match.group("name").strip()
+        if not name:
+            continue
+        mentions.append(
+            EntityMention(
+                name=name,
+                entity_type=match.group("type").strip().lower(),
+                sentiment=match.group("sentiment").strip().lower(),
+            )
+        )
+    if max_entities is not None:
+        mentions = mentions[:max_entities]
+    return tuple(mentions)
 
 
 def _build_profile_section(user_profile) -> str:
@@ -78,8 +139,14 @@ def _parse_ideas(raw: str) -> tuple[Idea, ...]:
         lines = seg.split("\n", 1)
         title = lines[0].strip()
         body = lines[1].strip() if len(lines) > 1 else ""
+        entities: tuple[EntityMention, ...] = ()
+        body_lines = body.split("\n")
+        if body_lines and body_lines[-1].strip().startswith(_ENTITIES_LINE_PREFIX):
+            entities_line = body_lines[-1].strip()[len(_ENTITIES_LINE_PREFIX):].strip()
+            entities = _parse_entity_mentions(entities_line)
+            body = "\n".join(body_lines[:-1]).strip()
         if title:
-            ideas.append(Idea(title=title, summary_text=body))
+            ideas.append(Idea(title=title, summary_text=body, entities=entities))
     if not ideas:
         return (Idea(
             title="Content Unavailable",
@@ -100,6 +167,7 @@ class ClaudeSummarizer:
         summary_percentage: int = 18,
         summary_min_words: int = 100,
         summary_max_words: int = 500,
+        knowledge_config=None,
     ) -> None:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._log = get_logger(__name__)
@@ -109,6 +177,7 @@ class ClaudeSummarizer:
         self._percentage = summary_percentage
         self._min_words = summary_min_words
         self._max_words = summary_max_words
+        self._knowledge_config = knowledge_config
 
     def _compute_target(self, email: Email) -> int:
         if self._mode == "percentage":
@@ -232,7 +301,10 @@ class ClaudeSummarizer:
         )
 
         profile_section = _build_profile_section(user_profile)
-        system_prompt = _IDEA_SYSTEM_PROMPT_TEMPLATE.format(profile_section=profile_section)
+        entity_section = _build_entity_section(self._knowledge_config)
+        system_prompt = _IDEA_SYSTEM_PROMPT_TEMPLATE.format(
+            profile_section=profile_section, entity_section=entity_section
+        )
         user_content = (
             f"Decompose the following newsletter into ideas:\n---\n"
             f"{email.plain_text or email.raw_html[:8000]}\n---"
