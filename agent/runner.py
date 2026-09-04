@@ -31,10 +31,17 @@ log = get_logger(__name__)
 
 
 class NewsletterAgent:
-    def __init__(self, config: AgentConfiguration, dry_run: bool = False, preview: bool = False) -> None:
+    def __init__(
+        self,
+        config: AgentConfiguration,
+        dry_run: bool = False,
+        preview: bool = False,
+        skip_signals: bool = False,
+    ) -> None:
         self.config = config
         self.dry_run = dry_run
         self.preview = preview
+        self.skip_signals = skip_signals
         self._fetcher = GmailFetcher()
         self._parser = EmailParser()
         self._summarizer = ClaudeSummarizer(
@@ -57,8 +64,22 @@ class NewsletterAgent:
         return None
 
     def run(self) -> None:
-        """Execute a full agent run: fetch → sort → batch → parse → summarize → build → deliver."""
-        run_date = datetime.now(timezone.utc)
+        """Execute a full agent run, then evaluate whether a periodic Signals Report is due.
+
+        The Signals Report cadence check runs in `finally` so that neither an empty inbox
+        nor a digest-pipeline exception can suppress a due report (FR-026, SC-006) — those
+        quiet stretches, with no digest arriving either, are exactly when a trend report
+        is most useful.
+        """
+        now = datetime.now(timezone.utc)
+        try:
+            self._run_digest(now)
+        finally:
+            if not self.skip_signals:
+                self.maybe_run_signals(now)
+
+    def _run_digest(self, run_date: datetime) -> None:
+        """Execute the digest pipeline: fetch → sort → batch → parse → summarize → build → deliver."""
         log.info("agent_run_started", dry_run=self.dry_run)
 
         # Fetch
@@ -71,6 +92,11 @@ class NewsletterAgent:
         if not emails:
             log.info("poll_complete_no_emails")
             return
+
+        observation_store = None
+        if self.config.knowledge is not None and not self.dry_run:
+            from agent.knowledge.store import ObservationStore
+            observation_store = ObservationStore(self.config.knowledge.db_path)
 
         # Sort oldest-first, then cap
         sorted_emails = sorted(emails, key=lambda e: e.received_at)
@@ -146,6 +172,13 @@ class NewsletterAgent:
                     api_key=self.config.anthropic_api_key,
                     user_profile=self.config.user_profile,
                 ).analyze([e.summary for e in entries])
+
+            # Observation recording — must happen before delivery/move_to_trash, since a
+            # trashed email's mentions become unrecoverable (FR-007). --preview writes here
+            # deliberately; --dry-run does not (observation_store is None in that case).
+            if observation_store is not None:
+                for entry in entries:
+                    observation_store.record_summary(entry.summary)
 
             gmail_ids = [e.gmail_message_id for e in entries if e.gmail_message_id]
             digest_batch = DigestBatch(
@@ -239,6 +272,64 @@ class NewsletterAgent:
 
         log.info("single_run_complete", dry_run=self.dry_run)
 
+    def maybe_run_signals(self, now: datetime, force: bool = False, dry_run: bool = False) -> None:
+        """Evaluate cadence and, if due, run the periodic Signals Report. Never raises (FR-029).
+
+        *force* bypasses the `job_due` cadence check (used by `--signals`/`--signals-dry-run`).
+        *dry_run* renders and prints the report instead of sending it, and does not update
+        `job_run` — it's a diagnostic pass, not a real cycle.
+        """
+        if self.config.signals is None or not self.config.signals.enabled:
+            return
+        if self.config.knowledge is None:
+            return
+
+        from agent.knowledge.store import ObservationStore
+        store = ObservationStore(self.config.knowledge.db_path)
+
+        if not force and not store.job_due("signals_report", self.config.signals.interval_days, now):
+            return
+
+        status = "failure"
+        try:
+            from agent.trends.metrics import compute_brief
+            from agent.trends.analyzer import TrendAnalyzer
+            from agent.digest.builder import build_signals
+
+            brief = compute_brief(store, self.config.signals, now)
+            # FredFetcher lands in a later phase (US2) — the macro dashboard renders
+            # nothing until then, which is a valid, expected render (report.macro is None).
+            macro = None
+
+            report = TrendAnalyzer(
+                api_key=self.config.anthropic_api_key,
+                config=self.config.signals,
+                user_profile=self.config.user_profile,
+            ).analyze(brief, macro)
+
+            html = build_signals(report, now)
+            subject = f"Signals Report — {now.strftime('%B %-d, %Y')}"
+
+            if dry_run:
+                print(f"\n{'='*60}")
+                print(f"DRY RUN — {subject}")
+                print(
+                    f"Risks: {len(report.risks)}, Opportunities: {len(report.opportunities)}, "
+                    f"Emerging: {len(report.emerging)}, Fading: {len(report.fading)}, "
+                    f"Watch: {len(report.watch)}"
+                )
+                print("=" * 60)
+            else:
+                self._delivery.send(html_body=html, subject=subject, config=self.config)
+
+            status = "success"
+            log.info("signals_report_complete", dry_run=dry_run, forced=force)
+        except Exception as exc:
+            log.error("signals_report_failed", error=str(exc), exc_info=True)
+        finally:
+            if not dry_run:
+                store.mark_job_run("signals_report", status, now)
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Newsletter Digest Agent")
@@ -262,6 +353,21 @@ def _parse_args() -> argparse.Namespace:
         default="config/newsletters.yaml",
         help="Path to newsletters.yaml config file (default: config/newsletters.yaml).",
     )
+    parser.add_argument(
+        "--signals",
+        action="store_true",
+        help="Run only the Signals Report pipeline (bypassing cadence) and exit. No digest fetch.",
+    )
+    parser.add_argument(
+        "--signals-dry-run",
+        action="store_true",
+        help="Run the Signals Report pipeline end-to-end but print instead of sending. No digest fetch.",
+    )
+    parser.add_argument(
+        "--skip-signals",
+        action="store_true",
+        help="Run the digest but skip the Signals Report cadence check for this run.",
+    )
     return parser.parse_args()
 
 
@@ -274,8 +380,18 @@ def main() -> None:
         print(f"Configuration error: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    if args.signals or args.signals_dry_run:
+        agent = NewsletterAgent(config=config)
+        agent.maybe_run_signals(datetime.now(timezone.utc), force=True, dry_run=args.signals_dry_run)
+        return
+
     if args.once or args.dry_run or args.preview:
-        agent = NewsletterAgent(config=config, dry_run=args.dry_run, preview=args.preview)
+        agent = NewsletterAgent(
+            config=config,
+            dry_run=args.dry_run,
+            preview=args.preview,
+            skip_signals=args.skip_signals,
+        )
         try:
             agent.run()
         except FetchError as exc:
