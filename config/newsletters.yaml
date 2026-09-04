@@ -55,3 +55,52 @@ subject_keywords:
 # Scheduler settings (used by: python -m agent.scheduler)
 schedule:
   timezone: "America/Los_Angeles"
+
+# ============================================================
+# Signals Report — Persistent Knowledge Layer (001-signals-knowledge-graph)
+# All three sections below are optional and commented out by default.
+# Absent means disabled — uncommenting knowledge_graph + signals is what
+# turns the feature on. See specs/001-signals-knowledge-graph/quickstart.md.
+# ============================================================
+
+# ─── Persistent knowledge layer ───────────────────────────────
+# Absent → no observations recorded, no data/ directory created.
+# knowledge_graph:
+#   enabled: true
+#   db_path: "data/signals.db"
+#   retention_days: 180          # raw observations pruned past this; rollup kept forever
+#   max_entities_per_idea: 8     # caps extraction output tokens
+
+# ─── Periodic Signals Report ──────────────────────────────────
+# Absent → no report is ever generated. Requires knowledge_graph.
+# signals:
+#   enabled: true
+#   interval_days: 3             # cost lever
+#   window_days: 7               # analysis window; prior window is the 7 days before it
+#   min_mentions: 3              # floor before an entity may be reported
+#   min_sources: 2               # distinct newsletters required
+#   max_entities_in_prompt: 40   # cost lever; keeps prompt size O(config) not O(history)
+#   web_search_enabled: false    # P2
+#   web_search_max_uses: 5       # cost lever
+#   model: "claude-opus-5"
+
+# ─── Macroeconomic dashboard (P2) ─────────────────────────────
+# Absent, or FRED_API_KEY unset → dashboard section renders nothing at all.
+# macro:
+#   enabled: true
+#   cache_hours: 12
+#   series:
+#     - T10Y3M          # 10y–3m spread — the inversion signal
+#     - T10Y2Y          # 10y–2y spread
+#     - SAHMREALTIME    # Sahm rule recession indicator
+#     - ICSA            # initial jobless claims
+#     - UNRATE          # unemployment rate
+#     - BAMLH0A0HYM2    # high-yield credit spread — best single stress early-warning
+#     - NFCI            # national financial conditions index
+#     - T5YIFR          # 5y forward inflation expectation
+#     - DFF             # effective fed funds rate
+#     - DTWEXBGS        # broad trade-weighted dollar
+#     - DEXINUS         # INR/USD
+#     - DCOILWTICO      # WTI crude
+#     - VIXCLS          # volatility
+#     - MORTGAGE30US    # 30-year mortgage rate

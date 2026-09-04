@@ -28,6 +28,17 @@ _REQUIRED_ENV = [
 _KNOWN_SENDER_KEYS = {"address", "display_name", "mode", "summary_word_target", "include_images", "max_images"}
 _KNOWN_PROFILE_KEYS = {"interests", "portfolio", "watchlist", "custom_prompts"}
 _KNOWN_HOLDING_KEYS = {"ticker", "name", "notes"}
+_KNOWN_KNOWLEDGE_KEYS = {"enabled", "db_path", "retention_days", "max_entities_per_idea"}
+_KNOWN_SIGNALS_KEYS = {
+    "enabled", "interval_days", "window_days", "min_mentions", "min_sources",
+    "max_entities_in_prompt", "web_search_enabled", "web_search_max_uses", "model",
+}
+_KNOWN_MACRO_KEYS = {"enabled", "series", "cache_hours"}
+
+_DEFAULT_MACRO_SERIES = [
+    "T10Y3M", "T10Y2Y", "SAHMREALTIME", "ICSA", "UNRATE", "BAMLH0A0HYM2", "NFCI",
+    "T5YIFR", "DFF", "DTWEXBGS", "DEXINUS", "DCOILWTICO", "VIXCLS", "MORTGAGE30US",
+]
 
 
 @dataclass
@@ -45,6 +56,40 @@ class UserProfile:
 
     custom_prompts: list[str] = field(default_factory=list)
     """Free-text instructions appended directly to the advisor prompt."""
+
+
+@dataclass
+class KnowledgeConfig:
+    """Persistent knowledge layer settings — config/newsletters.yaml `knowledge_graph:` section."""
+
+    enabled: bool = True
+    db_path: str = "data/signals.db"
+    retention_days: int = 180
+    max_entities_per_idea: int = 8
+
+
+@dataclass
+class SignalsConfig:
+    """Periodic Signals Report settings — config/newsletters.yaml `signals:` section."""
+
+    enabled: bool = True
+    interval_days: int = 3
+    window_days: int = 7
+    min_mentions: int = 3
+    min_sources: int = 2
+    max_entities_in_prompt: int = 40
+    web_search_enabled: bool = False
+    web_search_max_uses: int = 5
+    model: str = "claude-opus-5"
+
+
+@dataclass
+class MacroConfig:
+    """Macroeconomic dashboard settings — config/newsletters.yaml `macro:` section."""
+
+    enabled: bool = True
+    series: list[str] = field(default_factory=lambda: list(_DEFAULT_MACRO_SERIES))
+    cache_hours: int = 12
 
 
 @dataclass
@@ -76,6 +121,16 @@ class AgentConfiguration:
     user_profile: UserProfile | None = None
     """Reader profile for the advisor layer. None disables all personalization."""
 
+    # Signals Report — persistent knowledge layer (001-signals-knowledge-graph)
+    knowledge: KnowledgeConfig | None = None
+    """None disables observation recording entirely — no data/ directory is created."""
+
+    signals: SignalsConfig | None = None
+    """None disables the periodic Signals Report. Requires `knowledge` to also be set."""
+
+    macro: MacroConfig | None = None
+    """None disables the macro dashboard section of the Signals Report."""
+
     # Secrets (from env)
     anthropic_api_key: str = ""
     gmail_token_path: str = "token.json"
@@ -84,6 +139,8 @@ class AgentConfiguration:
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
+    fred_api_key: str = ""
+    """FRED API key for the macro dashboard. Absent → MacroSnapshot is None, no error."""
 
 
 def _parse_sender(raw: dict) -> SenderConfig:
@@ -180,6 +237,71 @@ def _parse_user_profile(raw: dict) -> UserProfile:
     )
 
 
+def _parse_knowledge_config(raw: dict) -> KnowledgeConfig:
+    """Parse the knowledge_graph: section. Raises ConfigurationError on unknown keys."""
+    from agent.utils.logger import get_logger
+    log = get_logger(__name__)
+
+    unknown = set(raw.keys()) - _KNOWN_KNOWLEDGE_KEYS
+    if unknown:
+        log.error("unknown_knowledge_config_keys", keys=sorted(unknown))
+        raise ConfigurationError(
+            f"Unknown key(s) in knowledge_graph config: {', '.join(sorted(unknown))}."
+        )
+
+    return KnowledgeConfig(
+        enabled=bool(raw.get("enabled", True)),
+        db_path=str(raw.get("db_path", "data/signals.db")),
+        retention_days=int(raw.get("retention_days", 180)),
+        max_entities_per_idea=int(raw.get("max_entities_per_idea", 8)),
+    )
+
+
+def _parse_signals_config(raw: dict) -> SignalsConfig:
+    """Parse the signals: section. Raises ConfigurationError on unknown keys."""
+    from agent.utils.logger import get_logger
+    log = get_logger(__name__)
+
+    unknown = set(raw.keys()) - _KNOWN_SIGNALS_KEYS
+    if unknown:
+        log.error("unknown_signals_config_keys", keys=sorted(unknown))
+        raise ConfigurationError(
+            f"Unknown key(s) in signals config: {', '.join(sorted(unknown))}."
+        )
+
+    return SignalsConfig(
+        enabled=bool(raw.get("enabled", True)),
+        interval_days=int(raw.get("interval_days", 3)),
+        window_days=int(raw.get("window_days", 7)),
+        min_mentions=int(raw.get("min_mentions", 3)),
+        min_sources=int(raw.get("min_sources", 2)),
+        max_entities_in_prompt=int(raw.get("max_entities_in_prompt", 40)),
+        web_search_enabled=bool(raw.get("web_search_enabled", False)),
+        web_search_max_uses=int(raw.get("web_search_max_uses", 5)),
+        model=str(raw.get("model", "claude-opus-5")),
+    )
+
+
+def _parse_macro_config(raw: dict) -> MacroConfig:
+    """Parse the macro: section. Raises ConfigurationError on unknown keys."""
+    from agent.utils.logger import get_logger
+    log = get_logger(__name__)
+
+    unknown = set(raw.keys()) - _KNOWN_MACRO_KEYS
+    if unknown:
+        log.error("unknown_macro_config_keys", keys=sorted(unknown))
+        raise ConfigurationError(
+            f"Unknown key(s) in macro config: {', '.join(sorted(unknown))}."
+        )
+
+    series = raw.get("series")
+    return MacroConfig(
+        enabled=bool(raw.get("enabled", True)),
+        series=[str(s) for s in series] if series else list(_DEFAULT_MACRO_SERIES),
+        cache_hours=int(raw.get("cache_hours", 12)),
+    )
+
+
 def load_config(yaml_path: str = "config/newsletters.yaml", profile_path: str = "config/user_profile.yaml") -> AgentConfiguration:
     """Load configuration from YAML file and environment variables.
 
@@ -259,6 +381,28 @@ def load_config(yaml_path: str = "config/newsletters.yaml", profile_path: str = 
     cfg.smtp_port = smtp_port
     cfg.smtp_user = os.environ["SMTP_USER"]
     cfg.smtp_password = os.environ["SMTP_PASSWORD"]
+    cfg.fred_api_key = os.environ.get("FRED_API_KEY", "")
+
+    # Optional Signals Report sections — absent means disabled (001-signals-knowledge-graph)
+    if raw.get("knowledge_graph") is not None:
+        cfg.knowledge = _parse_knowledge_config(raw["knowledge_graph"] or {})
+    if raw.get("signals") is not None:
+        if cfg.knowledge is None:
+            raise ConfigurationError(
+                "'signals' config section requires 'knowledge_graph' to also be configured — "
+                "there is nothing to analyze without recorded observations."
+            )
+        cfg.signals = _parse_signals_config(raw["signals"] or {})
+    if raw.get("macro") is not None:
+        if cfg.signals is None:
+            from agent.utils.logger import get_logger
+            get_logger(__name__).warning(
+                "macro_config_ignored",
+                message="'macro' config section present without 'signals' — ignoring; "
+                        "the dashboard has no report to attach to.",
+            )
+        else:
+            cfg.macro = _parse_macro_config(raw["macro"] or {})
 
     if not cfg.senders and not cfg.subject_keywords:
         from agent.utils.logger import get_logger
