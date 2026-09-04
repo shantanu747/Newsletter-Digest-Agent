@@ -3,9 +3,9 @@
 Auto-generated from all feature plans. Last updated: 2026-03-09
 
 ## Active Technologies
-- No persistent database; stateless per-run. `token.json` stores OAuth refresh token. `config/newsletters.yaml` stores non-secret configuration. (001-newsletter-digest-agent)
+- `token.json` stores OAuth refresh token. `config/newsletters.yaml` stores non-secret configuration. As of `001-signals-knowledge-graph`, a local SQLite store at `data/signals.db` adds the project's first persistent state — see below; still stateless per-run otherwise. (001-newsletter-digest-agent)
 - Python 3.11+ + `anthropic` SDK, `google-api-python-client` + OAuth 2.0, `beautifulsoup4` + `html2text`, `APScheduler`, `Jinja2`, `PyYAML` + `python-dotenv`, `structlog`, `smtplib` (stdlib) (001-digest-agent-enhancements)
-- Stateless files — `token.json` (OAuth), `config/newsletters.yaml` (config). No database. (001-digest-agent-enhancements)
+- Files — `token.json` (OAuth), `config/newsletters.yaml` (config), plus `data/signals.db` (SQLite, added by `001-signals-knowledge-graph`). (001-digest-agent-enhancements)
 - Python 3.11+ + `anthropic` SDK, `Jinja2`, `PyYAML`, `structlog`, `pytest` + `pytest-mock` (001-idea-digest-format)
 - Files only — `config/newsletters.yaml` (format toggle), `config/user_profile.yaml` (relevance signals). No schema migrations. (001-idea-digest-format)
 - Python 3.11+ + `anthropic` SDK (raise `requirements.txt` from `>=0.40.0` to `>=0.60.0` for the `web_search` server tool), `Jinja2`, `PyYAML`, `structlog`, `pytest` + `pytest-mock`. **No new third-party dependencies.** (001-signals-knowledge-graph)
