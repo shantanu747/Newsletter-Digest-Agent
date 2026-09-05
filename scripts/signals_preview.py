@@ -34,12 +34,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 from agent.knowledge.store import ObservationStore
 from agent.trends.metrics import compute_brief
 from agent.utils.config import SignalsConfig
 from agent.utils.models import EntityMention, Idea, Summary
+
+load_dotenv()
 
 _DEFAULT_DB_PATH = str(Path(tempfile.gettempdir()) / "newsletter_digest_agent_signals_preview.db")
 _REAL_STORE_PATH = str(Path("data/signals.db").resolve())
