@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 import anthropic
 
+from agent.utils.anthropic_text import extract_text
 from agent.utils.config import SignalsConfig, UserProfile
 from agent.utils.logger import get_logger
 from agent.utils.models import MacroSnapshot, SignalItem, SignalsReport, TrendBrief
@@ -123,16 +124,6 @@ def _build_brief_text(brief: TrendBrief, macro: MacroSnapshot | None) -> str:
     )
 
 
-def _extract_text(response) -> str:
-    """Concatenate every text content block. Must not assume block 0 is text —
-    a server-side tool block can occupy that position once web_search is enabled."""
-    parts = []
-    for block in response.content:
-        if getattr(block, "type", None) == "text":
-            parts.append(block.text)
-    return "".join(parts).strip()
-
-
 def _parse_section(text: str) -> tuple[SignalItem, ...]:
     items = []
     for match in _ITEM_RE.finditer(text):
@@ -225,7 +216,7 @@ class TrendAnalyzer:
                     system=system_prompt,
                     messages=[{"role": "user", "content": "Interpret the brief above."}],
                 )
-                raw_text = _extract_text(response)
+                raw_text = extract_text(response)
                 sections = _parse_response(raw_text, brief)
                 self._log.info(
                     "trend_analysis_complete",
