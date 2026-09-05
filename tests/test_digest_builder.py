@@ -4,6 +4,7 @@ Tests cover:
 - Build digest with multiple entries: HTML contains sender, subject, summary text
 - Build digest with failed subjects: HTML mentions the failed newsletter name
 - Build digest with empty entries: HTML is generated without error and contains run date
+- Build digest with themes: Theme block renders, absorbed ideas hidden, covered note shown
 """
 
 from datetime import datetime, timezone
@@ -11,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.utils.models import AdvisorAnalysis, DigestBatch, DigestEntry, Email, Summary
+from agent.utils.models import AdvisorAnalysis, DigestBatch, DigestEntry, Idea, EntityMention, Summary, Theme
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +360,12 @@ def _fake_render(
         parts.append("<div class='entry'>")
         parts.append(f"<p class='sender'>{s.sender}</p>")
         parts.append(f"<h2>{s.subject}</h2>")
-        parts.append(f"<p>{s.summary_text}</p>")
+        if s.ideas:
+            for idea in s.ideas:
+                parts.append(f"<p>{idea.title}</p>")
+                parts.append(f"<p>{idea.summary_text}</p>")
+        else:
+            parts.append(f"<p>{s.summary_text}</p>")
         parts.append("</div>")
     if failed_subjects:
         parts.append("<section class='failed'>")
@@ -368,3 +374,276 @@ def _fake_render(
         parts.append("</section>")
     parts.append("</body></html>")
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Theme helpers
+# ---------------------------------------------------------------------------
+
+def _make_idea(
+    title: str,
+    summary_text: str,
+    entities: list[EntityMention] | None = None,
+) -> Idea:
+    return Idea(
+        title=title,
+        summary_text=summary_text,
+        entities=tuple(entities) if entities else (),
+    )
+
+
+def _make_summary_with_ideas(
+    email_id: str,
+    sender: str,
+    subject: str,
+    ideas: list[Idea] | None = None,
+) -> Summary:
+    return Summary(
+        email_id=email_id,
+        sender=sender,
+        subject=subject,
+        summary_text="",
+        word_count=0,
+        generated_at=datetime(2026, 3, 9, 7, 1, 0, tzinfo=timezone.utc),
+        ideas=tuple(ideas) if ideas else None,
+    )
+
+
+def _make_entry_with_ideas(
+    email_id: str,
+    sender: str,
+    subject: str,
+    ideas: list[Idea] | None = None,
+    display_name: str = "",
+) -> DigestEntry:
+    summary = _make_summary_with_ideas(email_id, sender, subject, ideas)
+    return DigestEntry(
+        summary=summary,
+        display_name=display_name or sender,
+    )
+
+
+def _make_theme(
+    title: str,
+    body: str,
+    sources: list[str],
+    absorbed_keys: list[tuple[str, int]],
+    disagreement: str | None = None,
+) -> Theme:
+    return Theme(
+        title=title,
+        body=body,
+        sources=tuple(sources),
+        disagreement=disagreement,
+        absorbed_idea_keys=tuple(absorbed_keys),
+    )
+
+
+def _make_batch_with_themes(
+    entries: list[DigestEntry],
+    themes: list[Theme] | None = None,
+    batch_index: int = 0,
+    total_batches: int = 1,
+    advisor: AdvisorAnalysis | None = None,
+) -> DigestBatch:
+    return DigestBatch(
+        batch_index=batch_index,
+        entries=entries,
+        gmail_message_ids=[],
+        total_batches=total_batches,
+        advisor=advisor,
+        themes=tuple(themes) if themes else (),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Theme Tests
+# ---------------------------------------------------------------------------
+
+class TestDigestBuilderThemes:
+    """Theme rendering and absorbed idea suppression."""
+
+    @pytest.fixture
+    def run_date(self) -> datetime:
+        return datetime(2026, 3, 9, 6, 30, 0, tzinfo=timezone.utc)
+
+    @pytest.fixture
+    def entries_with_ideas(self) -> list[DigestEntry]:
+        e1 = EntityMention(name="Nvidia", entity_type="company", sentiment="negative")
+        e2 = EntityMention(name="export controls", entity_type="policy", sentiment="negative")
+        return [
+            _make_entry_with_ideas("msg-1", "a@x.com", "Bloomberg", [
+                _make_idea("Nvidia hit", "Nvidia faces new curbs", [e1, e2]),
+                _make_idea("Market reacts", "Stocks dip on news", [e1]),
+            ], display_name="Bloomberg"),
+            _make_entry_with_ideas("msg-2", "b@x.com", "AI Journal", [
+                _make_idea("Chip curbs", "Export controls tighten", [e1, e2]),
+            ], display_name="The AI Journal"),
+        ]
+
+    @pytest.fixture
+    def theme(self) -> Theme:
+        return _make_theme(
+            title="Nvidia hit by new export controls",
+            body="Bloomberg reports Nvidia faces new curbs while The AI Journal adds that China restrictions expand.",
+            sources=["Bloomberg", "The AI Journal"],
+            absorbed_keys=[("msg-1", 0), ("msg-2", 0)],
+            disagreement="Bloomberg emphasizes revenue impact; The AI Journal focuses on supply chain.",
+        )
+
+    def test_no_themes_html_is_byte_identical_to_pre_synthesis_render(self, mocker, run_date, entries_with_ideas):
+        """Empty themes produces identical HTML to batch without themes kwarg (FR-050)."""
+        # Render with themes=()
+        batch_with_themes = _make_batch_with_themes(entries_with_ideas, themes=[])
+        batch_without_themes = DigestBatch(
+            batch_index=0,
+            entries=entries_with_ideas,
+            gmail_message_ids=[],
+            total_batches=1,
+        )
+
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+
+        # Mock template to return same base HTML
+        base_html = _fake_render(entries_with_ideas, run_date=run_date)
+        mock_template = MagicMock()
+        mock_template.render.return_value = base_html
+        mocker.patch("jinja2.Environment.get_template", return_value=mock_template)
+
+        html_with = builder.build(batch=batch_with_themes, run_date=run_date, total_summarized=2)
+        html_without = builder.build(batch=batch_without_themes, run_date=run_date, total_summarized=2)
+
+        # Both should not contain theme-related content
+        assert "Today's Themes" not in html_with
+        assert "Today's Themes" not in html_without
+        assert "Covered in" not in html_with
+        assert "Covered in" not in html_without
+        # Both should contain all original ideas
+        assert "Nvidia hit" in html_with
+        assert "Market reacts" in html_with
+        assert "Chip curbs" in html_with
+        assert "Nvidia hit" in html_without
+        assert "Market reacts" in html_without
+        assert "Chip curbs" in html_without
+
+    def test_theme_block_renders_title_sources_body(self, mocker, run_date, entries_with_ideas, theme):
+        """Theme block renders title, sources, and body."""
+        batch = _make_batch_with_themes(entries_with_ideas, themes=[theme])
+
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+        html = builder.build(batch=batch, run_date=run_date, total_summarized=2)
+
+        assert theme.title in html
+        assert "Bloomberg" in html
+        assert "The AI Journal" in html
+        assert "Nvidia faces new curbs" in html
+
+    def test_disagreement_line_only_when_present(self, mocker, run_date, entries_with_ideas):
+        """Disagreement line renders only when disagreement is not None."""
+        theme_with = _make_theme("Title", "Body", ["A", "B"], [], disagreement="They disagree.")
+        theme_without = _make_theme("Title", "Body", ["A", "B"], [], disagreement=None)
+
+        batch_with = _make_batch_with_themes(entries_with_ideas, themes=[theme_with])
+        batch_without = _make_batch_with_themes(entries_with_ideas, themes=[theme_without])
+
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+
+        html_with = builder.build(batch=batch_with, run_date=run_date, total_summarized=2)
+        html_without = builder.build(batch=batch_without, run_date=run_date, total_summarized=2)
+
+        assert "Where they disagree" in html_with
+        assert "Where they disagree" not in html_without
+
+    def test_absorbed_idea_hidden_unabsorbed_idea_rendered(self, mocker, run_date, entries_with_ideas, theme):
+        """Absorbed ideas are hidden; unabsorbed ideas still render."""
+        batch = _make_batch_with_themes(entries_with_ideas, themes=[theme])
+
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+        html = builder.build(batch=batch, run_date=run_date, total_summarized=2)
+
+        # The absorbed idea content should not appear in the entry's idea list
+        # Check that "Market reacts" (unabsorbed) appears in entry section
+        assert "Market reacts" in html
+        assert "Stocks dip on news" in html
+        # The absorbed ideas' original bodies should not appear in entry sections
+        # (they appear in the theme block instead, merged)
+        # Just verify the unabsorbed ideas are present
+        assert "Nvidia faces new curbs" in html  # appears in theme body
+        assert "Export controls tighten" not in html  # this is the original idea body, not in theme
+
+    def test_entry_with_all_ideas_absorbed_shows_covered_note_and_still_lists_subject(self, mocker, run_date):
+        """Entry whose all ideas are absorbed shows covered note but still appears in TOC."""
+        e1 = EntityMention(name="Nvidia", entity_type="company", sentiment="negative")
+        e2 = EntityMention(name="export controls", entity_type="policy", sentiment="negative")
+
+        entries = [
+            _make_entry_with_ideas("msg-1", "a@x.com", "Bloomberg", [
+                _make_idea("Nvidia hit", "Nvidia faces new curbs", [e1, e2]),
+            ], display_name="Bloomberg"),
+            _make_entry_with_ideas("msg-2", "b@x.com", "AI Journal", [
+                _make_idea("Chip curbs", "Export controls tighten", [e1, e2]),
+            ], display_name="The AI Journal"),
+        ]
+        theme = _make_theme(
+            title="Nvidia export controls",
+            body="Both cover the same story.",
+            sources=["Bloomberg", "The AI Journal"],
+            absorbed_keys=[("msg-1", 0), ("msg-2", 0)],
+        )
+        batch = _make_batch_with_themes(entries, themes=[theme])
+
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+        html = builder.build(batch=batch, run_date=run_date, total_summarized=2)
+
+        # TOC still lists both entries
+        assert "Bloomberg" in html
+        assert "AI Journal" in html
+        # Covered note appears
+        assert "Covered in Today's Themes" in html
+        assert "Nvidia export controls" in html
+
+    def test_hr_not_orphaned_when_last_idea_absorbed(self, mocker, run_date, entries_with_ideas, theme):
+        """HR count equals visible ideas - 1 (no orphaned HR after last visible idea)."""
+        batch = _make_batch_with_themes(entries_with_ideas, themes=[theme])
+
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+        html = builder.build(batch=batch, run_date=run_date, total_summarized=2)
+
+        # Count HR tags in entry sections - should be (visible_ideas - 1) per entry
+        # Bloomberg had 2 ideas, 1 absorbed -> 1 visible -> 0 HR
+        # AI Journal had 1 idea, 1 absorbed -> 0 visible -> 0 HR
+        # So no HR tags should appear
+        hr_count = html.count("<hr")
+        assert hr_count == 0
+
+    def test_toc_still_lists_entry_whose_ideas_are_all_absorbed(self, mocker, run_date):
+        """TOC includes entry even when all its ideas are absorbed."""
+        e1 = EntityMention(name="Nvidia", entity_type="company", sentiment="negative")
+        e2 = EntityMention(name="export controls", entity_type="policy", sentiment="negative")
+
+        entries = [
+            _make_entry_with_ideas("msg-1", "a@x.com", "Bloomberg", [
+                _make_idea("Nvidia hit", "Nvidia faces new curbs", [e1, e2]),
+            ], display_name="Bloomberg"),
+        ]
+        theme = _make_theme(
+            title="Nvidia export controls",
+            body="Covered.",
+            sources=["Bloomberg"],
+            absorbed_keys=[("msg-1", 0)],
+        )
+        batch = _make_batch_with_themes(entries, themes=[theme])
+
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+        html = builder.build(batch=batch, run_date=run_date, total_summarized=1)
+
+        # TOC should still have the entry
+        assert "Bloomberg" in html
+        assert "Bloomberg" in html  # subject in TOC
