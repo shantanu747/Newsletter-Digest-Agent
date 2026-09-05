@@ -9,7 +9,7 @@ from pathlib import Path
 import jinja2
 
 from agent.utils.logger import get_logger
-from agent.utils.models import DigestBatch, SignalsReport
+from agent.utils.models import DigestBatch, Idea, SignalsReport
 
 log = get_logger(__name__)
 
@@ -40,6 +40,44 @@ def _make_env() -> jinja2.Environment:
     return env
 
 
+def _compute_theme_data(batch: DigestBatch) -> tuple[dict[tuple[str, int], str], dict[str, list[tuple[int, Idea]]], dict[str, list[str]]]:
+    """Compute theme-related data for template rendering.
+
+    Returns:
+        absorbed: map from (email_id, idea_index) -> theme title
+        visible_ideas: map from email_id -> list of (original_index, idea) not absorbed
+        absorbed_titles_by_email: map from email_id -> list of theme titles for absorbed ideas
+    """
+    absorbed: dict[tuple[str, int], str] = {}
+    for theme in batch.themes:
+        for key in theme.absorbed_idea_keys:
+            absorbed.setdefault(key, theme.title)
+
+    visible_ideas: dict[str, list[tuple[int, Idea]]] = {}
+    absorbed_titles_by_email: dict[str, list[str]] = {}
+
+    for entry in batch.entries:
+        email_id = entry.summary.email_id
+        if entry.summary.ideas is None:
+            visible_ideas[email_id] = []
+            continue
+
+        visible: list[tuple[int, Idea]] = []
+        absorbed_titles: list[str] = []
+        for idx, idea in enumerate(entry.summary.ideas):
+            key = (email_id, idx)
+            if key in absorbed:
+                title = absorbed[key]
+                if title not in absorbed_titles:
+                    absorbed_titles.append(title)
+            else:
+                visible.append((idx, idea))
+        visible_ideas[email_id] = visible
+        absorbed_titles_by_email[email_id] = absorbed_titles
+
+    return absorbed, visible_ideas, absorbed_titles_by_email
+
+
 class DigestBuilder:
     """Renders a DigestBatch into an HTML digest string."""
 
@@ -66,6 +104,8 @@ class DigestBuilder:
         failed_subjects = failed_subjects or []
         _total_summarized = total_summarized if total_summarized is not None else len(batch.entries)
 
+        absorbed, visible_ideas, absorbed_titles_by_email = _compute_theme_data(batch)
+
         env = _make_env()
         template = env.get_template("digest.html.j2")
 
@@ -85,6 +125,9 @@ class DigestBuilder:
             total_found=total_found,
             total_summarized=_total_summarized,
             failed_subjects=failed_subjects,
+            absorbed=absorbed,
+            visible_ideas=visible_ideas,
+            absorbed_titles_by_email=absorbed_titles_by_email,
         )
 
 
