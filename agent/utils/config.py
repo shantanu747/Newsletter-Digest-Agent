@@ -28,7 +28,7 @@ _REQUIRED_ENV = [
 _KNOWN_SENDER_KEYS = {"address", "display_name", "mode", "summary_word_target", "include_images", "max_images"}
 _KNOWN_PROFILE_KEYS = {"interests", "portfolio", "watchlist", "custom_prompts"}
 _KNOWN_HOLDING_KEYS = {"ticker", "name", "notes"}
-_KNOWN_KNOWLEDGE_KEYS = {"enabled", "db_path", "retention_days", "max_entities_per_idea"}
+_KNOWN_KNOWLEDGE_KEYS = {"enabled", "db_path", "retention_days", "max_entities_per_idea", "synthesis_enabled"}
 _KNOWN_SIGNALS_KEYS = {
     "enabled", "interval_days", "window_days", "min_mentions", "min_sources",
     "max_entities_in_prompt", "web_search_enabled", "web_search_max_uses", "model",
@@ -66,6 +66,8 @@ class KnowledgeConfig:
     db_path: str = "data/signals.db"
     retention_days: int = 180
     max_entities_per_idea: int = 8
+    synthesis_enabled: bool = False
+    """Merge ideas that several newsletters share into a Today's Themes block."""
 
 
 @dataclass
@@ -258,6 +260,7 @@ def _parse_knowledge_config(raw: dict) -> KnowledgeConfig:
         db_path=str(raw.get("db_path", "data/signals.db")),
         retention_days=int(raw.get("retention_days", 180)),
         max_entities_per_idea=int(raw.get("max_entities_per_idea", 8)),
+        synthesis_enabled=bool(raw.get("synthesis_enabled", False)),
     )
 
 
