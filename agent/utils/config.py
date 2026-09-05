@@ -107,6 +107,10 @@ class AgentConfiguration:
     digest_format: Literal["classic", "idea_based"] = "classic"
     """Controls summarization output shape. 'classic' = word-count summary; 'idea_based' = discrete ideas."""
 
+    # Model used for per-newsletter summarization and the daily advisor section.
+    # The Signals Report has its own `signals.model` (defaults to claude-opus-5).
+    model: str = "claude-sonnet-5"
+
     # Summarization
     summary_word_target: int = 225
     summary_length_mode: str = "fixed"   # "fixed" | "percentage"
@@ -352,6 +356,7 @@ def load_config(yaml_path: str = "config/newsletters.yaml", profile_path: str = 
         batch_size=batch_size,
         max_newsletters_per_run=int(raw.get("max_newsletters_per_run", 20)),
         digest_format=digest_format,
+        model=str(raw.get("model") or "claude-sonnet-5"),
         summary_word_target=int(raw.get("summary_word_target", 225)),
         summary_length_mode=str(raw.get("summary_length_mode", "fixed")),
         summary_percentage=int(raw.get("summary_percentage", 18)),

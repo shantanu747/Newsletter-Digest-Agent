@@ -152,6 +152,68 @@ class TestAgentConfigurationDefaults:
         cfg = AgentConfiguration()
         assert cfg.user_profile is None
 
+    def test_model_defaults_to_sonnet_5(self):
+        """model defaults to claude-sonnet-5."""
+        cfg = AgentConfiguration()
+        assert cfg.model == "claude-sonnet-5"
+
+
+# ---------------------------------------------------------------------------
+# load_config() — `model` key
+# ---------------------------------------------------------------------------
+
+class TestLoadConfigModel:
+    """Tests for the top-level `model` key inside load_config()."""
+
+    _ENV = {
+        "ANTHROPIC_API_KEY": "sk-test",
+        "GMAIL_OAUTH_TOKEN_PATH": "token.json",
+        "DELIVERY_EMAIL": "test@example.com",
+        "SMTP_HOST": "smtp.example.com",
+        "SMTP_PORT": "587",
+        "SMTP_USER": "user@example.com",
+        "SMTP_PASSWORD": "password",
+    }
+
+    def test_model_defaults_to_sonnet_5_when_key_absent(self, tmp_path):
+        """cfg.model falls back to claude-sonnet-5 when `model` is absent from YAML."""
+        from agent.utils.config import load_config
+        import os
+
+        yaml_file = tmp_path / "newsletters.yaml"
+        yaml_file.write_text("senders: []\nsubject_keywords: []\n")
+
+        with patch.dict(os.environ, self._ENV):
+            cfg = load_config(str(yaml_file), profile_path=str(tmp_path / "absent.yaml"))
+
+        assert cfg.model == "claude-sonnet-5"
+
+    def test_model_key_is_read_from_yaml(self, tmp_path):
+        """cfg.model reflects an explicit `model` key in YAML."""
+        from agent.utils.config import load_config
+        import os
+
+        yaml_file = tmp_path / "newsletters.yaml"
+        yaml_file.write_text('senders: []\nsubject_keywords: []\nmodel: "claude-test-x"\n')
+
+        with patch.dict(os.environ, self._ENV):
+            cfg = load_config(str(yaml_file), profile_path=str(tmp_path / "absent.yaml"))
+
+        assert cfg.model == "claude-test-x"
+
+    def test_empty_model_string_falls_back_to_default(self, tmp_path):
+        """An empty `model` string in YAML falls back to the default rather than being used verbatim."""
+        from agent.utils.config import load_config
+        import os
+
+        yaml_file = tmp_path / "newsletters.yaml"
+        yaml_file.write_text('senders: []\nsubject_keywords: []\nmodel: ""\n')
+
+        with patch.dict(os.environ, self._ENV):
+            cfg = load_config(str(yaml_file), profile_path=str(tmp_path / "absent.yaml"))
+
+        assert cfg.model == "claude-sonnet-5"
+
 
 # ---------------------------------------------------------------------------
 # _parse_user_profile() tests
