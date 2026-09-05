@@ -1,11 +1,10 @@
 """Tests for agent/runner.py — dry-run mode (US2)."""
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from datetime import datetime, timezone
 
 from agent.runner import NewsletterAgent
 from agent.utils.config import KnowledgeConfig, UserProfile
-from agent.utils.models import Email, Summary, DigestEntry
+from agent.utils.models import Email, Summary, Idea, EntityMention
 
 
 class TestDryRun:
@@ -230,3 +229,81 @@ class TestNewsletterAgentConstruction:
 
         mock_advisor_cls.assert_called_once()
         assert mock_advisor_cls.call_args.kwargs["model"] == "claude-test-x"
+
+
+class TestThemeSynthesis:
+    """Tests for theme synthesis integration in runner."""
+
+    def test_synthesis_skipped_when_flag_off(self, mock_config, mocker):
+        """synthesis_enabled=False -> ThemeSynthesizer not called."""
+        mock_config.knowledge = KnowledgeConfig(enabled=True, synthesis_enabled=False)
+
+        mock_email = Email(
+            id="msg-1", source="gmail", sender="a@example.com",
+            subject="Test", received_at=datetime(2026,3,9,7,0,tzinfo=timezone.utc),
+            raw_html="<p>hello</p>", plain_text="hello"
+        )
+        mocker.patch("agent.runner.GmailFetcher.fetch_newsletters", return_value=[mock_email])
+        mocker.patch("agent.runner.EmailParser.parse", return_value=mock_email)
+        mock_summary = Summary(
+            email_id="msg-1", sender="a@example.com", subject="Test",
+            summary_text="word " * 225, word_count=225,
+            generated_at=datetime(2026,3,9,7,1,tzinfo=timezone.utc)
+        )
+        mocker.patch("agent.runner.ClaudeSummarizer.summarize", return_value=mock_summary)
+        mocker.patch("agent.runner.DigestBuilder.build", return_value="<html>digest</html>")
+        mock_synthesizer = mocker.patch("agent.runner.ThemeSynthesizer")
+
+        agent = NewsletterAgent(config=mock_config, dry_run=True)
+        agent.run()
+
+        mock_synthesizer.assert_not_called()
+
+    def test_synthesis_runs_when_flag_on(self, mock_config, mocker):
+        """synthesis_enabled=True -> ThemeSynthesizer called and themes passed to batch."""
+        mock_config.knowledge = KnowledgeConfig(enabled=True, synthesis_enabled=True)
+
+        # Create entries with ideas that share entities
+        e1 = EntityMention(name="Nvidia", entity_type="company", sentiment="negative")
+        e2 = EntityMention(name="export controls", entity_type="policy", sentiment="negative")
+
+        mock_emails = [
+            Email(id="msg-1", source="gmail", sender="a@x.com",
+                  subject="Bloomberg", received_at=datetime(2026,3,9,7,0,tzinfo=timezone.utc),
+                  raw_html="<p>x</p>", plain_text="x"),
+            Email(id="msg-2", source="gmail", sender="b@x.com",
+                  subject="AI Journal", received_at=datetime(2026,3,9,7,0,tzinfo=timezone.utc),
+                  raw_html="<p>x</p>", plain_text="x"),
+        ]
+        mocker.patch("agent.runner.GmailFetcher.fetch_newsletters", return_value=mock_emails)
+        mocker.patch("agent.runner.EmailParser.parse", side_effect=lambda e, sender_config=None: e)
+
+        # Summaries with ideas
+        summary1 = Summary(
+            email_id="msg-1", sender="a@x.com", subject="Bloomberg",
+            summary_text="", word_count=0,
+            generated_at=datetime(2026,3,9,7,1,tzinfo=timezone.utc),
+            ideas=(Idea(title="Idea 1", summary_text="Nvidia faces curbs", entities=(e1, e2)),)
+        )
+        summary2 = Summary(
+            email_id="msg-2", sender="b@x.com", subject="AI Journal",
+            summary_text="", word_count=0,
+            generated_at=datetime(2026,3,9,7,1,tzinfo=timezone.utc),
+            ideas=(Idea(title="Idea 2", summary_text="Export controls expand", entities=(e1, e2)),)
+        )
+        mocker.patch("agent.runner.ClaudeSummarizer.summarize", side_effect=[summary1, summary2])
+        mocker.patch("agent.runner.DigestBuilder.build", return_value="<html>digest</html>")
+
+        # Mock ThemeSynthesizer to return a theme
+        mock_theme = MagicMock()
+        mock_synthesizer_instance = MagicMock()
+        mock_synthesizer_instance.synthesize.return_value = (mock_theme,)
+        mock_synthesizer_cls = mocker.patch("agent.runner.ThemeSynthesizer", return_value=mock_synthesizer_instance)
+
+        agent = NewsletterAgent(config=mock_config, dry_run=True)
+        agent.run()
+
+        mock_synthesizer_cls.assert_called_once_with(
+            api_key=mock_config.anthropic_api_key, model=mock_config.model
+        )
+        mock_synthesizer_instance.synthesize.assert_called_once()

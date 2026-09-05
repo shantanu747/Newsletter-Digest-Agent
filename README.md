@@ -18,6 +18,9 @@ Reading newsletters takes time. This agent solves that by running on a daily sch
 - **Smart newsletter detection** — filters by sender allowlist and/or subject keywords
 - **HTML content extraction** — strips boilerplate, headers, footers, and tracking pixels
 - **AI summarization** — generates ~200–250 word summaries via Claude API, preserving tone and key insights
+- **Idea-based digest format** — decomposes each newsletter into discrete, filterable ideas
+- **Cross-newsletter theme synthesis** — merges overlapping stories from multiple newsletters into a "Today's Themes" block, naming every source and flagging disagreements
+- **Signals Report** — periodic trend analysis with macro dashboard and optional web-search corroboration
 - **Daily digest delivery** — consolidates all summaries into a single formatted email
 - **Rate limit handling** — built-in backoff and throttling for all external APIs
 - **Configurable** — YAML-based config for senders, keywords, schedule, and delivery preferences
@@ -75,6 +78,8 @@ Reading newsletters takes time. This agent solves that by running on a daily sch
 | Scheduling | `APScheduler` | Lightweight in-process scheduler; easy cron-like syntax |
 | Config management | `PyYAML` + `python-dotenv` | Secrets in `.env`, non-secret config in `config.yaml` |
 | Logging | `structlog` | Structured JSON logs; easier to debug agent runs |
+| Persistent storage | `sqlite3` (stdlib) | Local knowledge graph for Signals Report & theme synthesis |
+| Macro data | FRED API via `urllib` (stdlib) | No external deps; economic indicators |
 | Development workflow | spec-kit | Specification-driven development — `/specify`, `/plan`, `/tasks` commands drive each phase |
 
 ---
@@ -249,6 +254,56 @@ Or add directly to crontab (runs at 6:30am daily):
 
 ---
 
+## Signals Report & Theme Synthesis (Optional)
+
+The agent includes an optional **persistent knowledge layer** that records entities from each newsletter over time and generates periodic insights.
+
+### Signals Report
+A periodic trend analysis report (default every 3 days) that includes:
+- **Macro dashboard** — key economic indicators from FRED (yield curves, unemployment, credit spreads, etc.)
+- **Accelerating risks / Opportunities** — entities with significant mention trends
+- **Emerging / Fading themes** — new and declining topics
+- **Narrative vs. indicator divergences** — where newsletters disagree with market data
+
+### Today's Themes (Cross-newsletter synthesis)
+When enabled, the daily digest includes a **"Today's Themes"** block near the top that merges stories covered by multiple newsletters:
+- Each theme names every contributing newsletter
+- Disagreements between sources are explicitly called out
+- Merged ideas are hidden from their original newsletter sections (but every newsletter still appears in the digest)
+
+### Enabling the Knowledge Layer
+Uncomment and configure the `knowledge_graph:` section in `config/newsletters.yaml`:
+
+```yaml
+knowledge_graph:
+  enabled: true
+  db_path: "data/signals.db"
+  retention_days: 180
+  max_entities_per_idea: 8
+  synthesis_enabled: false  # set true to enable Today's Themes
+```
+
+Then optionally enable the Signals Report:
+
+```yaml
+signals:
+  enabled: true
+  interval_days: 3
+  window_days: 7
+  min_mentions: 3
+  min_sources: 2
+  max_entities_in_prompt: 40
+  web_search_enabled: false
+  web_search_max_uses: 5
+  model: "claude-opus-5"
+```
+
+The `macro:` section can also be added for the economic dashboard (requires `FRED_API_KEY` in `.env`).
+
+> **Note:** The knowledge layer is completely optional. With all three sections absent or disabled, the agent behaves exactly as before with no persistent state.
+
+---
+
 ## Project Structure
 
 ```
@@ -293,14 +348,46 @@ newsletter-digest-agent/
 
 ## Configuration Reference
 
+### Core Settings
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `senders` | list[str] | `[]` | Email addresses to treat as newsletters |
 | `subject_keywords` | list[str] | `[]` | Subject line keywords for fallback detection |
-| `lookback_hours` | int | `24` | How many hours back to search for newsletters |
+| `poll_interval_hours` | int | `4` | How often to poll Gmail |
+| `batch_size` | int | `10` | Max emails per digest batch |
 | `max_newsletters_per_run` | int | `20` | Cap to avoid hitting API rate limits |
 | `summary_word_target` | int | `225` | Target word count per summary |
+| `digest_format` | str | `"classic"` | `"classic"` (word-count summary) or `"idea_based"` (discrete ideas) |
 | `model` | str | `claude-sonnet-5` | Claude model for per-newsletter summaries and the daily advisor section; the periodic Signals Report uses the separate `signals.model` key instead |
+
+### Knowledge Graph (Signals Report & Theme Synthesis)
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `knowledge_graph.enabled` | bool | `true` | Enable persistent entity extraction & storage |
+| `knowledge_graph.db_path` | str | `"data/signals.db"` | SQLite database path |
+| `knowledge_graph.retention_days` | int | `180` | Raw observation retention |
+| `knowledge_graph.max_entities_per_idea` | int | `8` | Cap on extracted entities per idea |
+| `knowledge_graph.synthesis_enabled` | bool | `false` | Enable cross-newsletter theme synthesis (Today's Themes block) |
+
+### Signals Report
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `signals.enabled` | bool | `true` | Enable periodic Signals Report |
+| `signals.interval_days` | int | `3` | Report cadence |
+| `signals.window_days` | int | `7` | Analysis window size |
+| `signals.min_mentions` | int | `3` | Minimum mentions for entity to be reported |
+| `signals.min_sources` | int | `2` | Minimum distinct newsletters |
+| `signals.max_entities_in_prompt` | int | `40` | Prompt size cap |
+| `signals.web_search_enabled` | bool | `false` | Enable web search corroboration |
+| `signals.web_search_max_uses` | int | `5` | Max web search calls per report |
+| `signals.model` | str | `"claude-opus-5"` | Model for trend analysis |
+
+### Macroeconomic Dashboard
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `macro.enabled` | bool | `true` | Enable FRED macro dashboard |
+| `macro.cache_hours` | int | `12` | Cache duration for FRED data |
+| `macro.series` | list[str] | 15 defaults | FRED series IDs to fetch |
 
 ---
 

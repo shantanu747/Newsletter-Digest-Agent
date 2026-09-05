@@ -74,6 +74,8 @@ knowledge_graph:
   db_path: "data/signals.db"
   retention_days: 180          # raw observations pruned past this; rollup kept forever
   max_entities_per_idea: 8     # caps extraction output tokens
+  # Merge stories covered by 2+ newsletters into a "Today's Themes" block (needs enabled: true)
+  synthesis_enabled: false
 
 # ─── Periodic Signals Report ──────────────────────────────────
 # Absent → no report is ever generated. Requires knowledge_graph.

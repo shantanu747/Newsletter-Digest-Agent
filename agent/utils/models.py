@@ -177,6 +177,20 @@ class AdvisorAnalysis:
 
 
 @dataclass(frozen=True)
+class Theme:
+    """A story told by several newsletters, merged into one reading (P3 synthesis)."""
+
+    title: str
+    body: str
+    sources: tuple[str, ...]
+    """Display names of every contributing newsletter, in cluster order."""
+    disagreement: str | None
+    """Where the sources conflict, stated plainly. None when they agree."""
+    absorbed_idea_keys: tuple[tuple[str, int], ...]
+    """(email_id, idea_index) pairs the renderer hides from per-newsletter sections."""
+
+
+@dataclass(frozen=True)
 class DigestBatch:
     """A group of up to batch_size emails assembled into one digest email."""
 
@@ -194,6 +208,9 @@ class DigestBatch:
 
     advisor: AdvisorAnalysis | None = None
     """Personalized advisor analysis. None when no user profile is configured."""
+
+    themes: tuple[Theme, ...] = field(default_factory=tuple)
+    """Cross-newsletter synthesized themes (P3). Empty when synthesis disabled."""
 
 
 @dataclass(frozen=True)

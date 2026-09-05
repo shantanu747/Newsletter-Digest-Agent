@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 from agent.utils.config import AgentConfiguration, load_config
 from agent.utils.exceptions import ConfigurationError, FetchError, SummarizationError, DeliveryError
 from agent.utils.logger import get_logger
-from agent.utils.models import DigestBatch, DigestEntry, SenderConfig
+from agent.utils.models import DigestBatch, DigestEntry, SenderConfig, Theme
+from agent.trends.synthesis import cluster_ideas, ThemeSynthesizer
 from agent.fetchers.gmail_fetcher import GmailFetcher
 from agent.parsers.email_parser import EmailParser
 from agent.summarizer.claude_summarizer import ClaudeSummarizer
@@ -183,6 +184,20 @@ class NewsletterAgent:
                 for entry in entries:
                     observation_store.record_summary(entry.summary)
 
+            # Theme synthesis — merge cross-newsletter stories into Today's Themes block
+            themes: tuple[Theme, ...] = ()
+            if (
+                self.config.knowledge is not None
+                and self.config.knowledge.enabled
+                and self.config.knowledge.synthesis_enabled
+                and entries
+            ):
+                clusters = cluster_ideas(entries)
+                if clusters:
+                    themes = ThemeSynthesizer(
+                        api_key=self.config.anthropic_api_key, model=self.config.model
+                    ).synthesize(clusters, entries)
+
             gmail_ids = [e.gmail_message_id for e in entries if e.gmail_message_id]
             digest_batch = DigestBatch(
                 batch_index=batch_idx,
@@ -190,6 +205,7 @@ class NewsletterAgent:
                 gmail_message_ids=gmail_ids,
                 total_batches=total_batches,
                 advisor=advisor,
+                themes=themes,
             )
 
             # Build digest HTML
@@ -226,6 +242,15 @@ class NewsletterAgent:
                         print("\n--- Action Signals ---")
                         s = adv.signals_text
                         print(s[:400] + "..." if len(s) > 400 else s)
+                if digest_batch.themes:
+                    print("\n--- Today's Themes ---")
+                    for theme in digest_batch.themes:
+                        sources_str = ", ".join(theme.sources)
+                        body_preview = theme.body[:300]
+                        print(f"• {theme.title}  [{sources_str}]")
+                        print(f"  {body_preview}")
+                        if theme.disagreement:
+                            print(f"  Disagreement: {theme.disagreement}")
                 for entry in entries:
                     mode = "[PASS-THROUGH]" if entry.is_pass_through else "[SUMMARIZED]"
                     print(f"\n{mode} [{entry.display_name}] {entry.summary.subject}")
