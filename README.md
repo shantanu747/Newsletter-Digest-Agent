@@ -70,7 +70,7 @@ Reading newsletters takes time. This agent solves that by running on a daily sch
 |---|---|---|
 | Gmail fetching | `google-api-python-client` + OAuth 2.0 | Official, reliable, quota-managed |
 | HTML parsing | `beautifulsoup4` + `html2text` | Industry standard for content extraction |
-| AI summarization | `anthropic` SDK | Claude Sonnet — best cost/quality tradeoff for text summarization |
+| AI summarization | `anthropic` SDK | Claude Sonnet 5 (configurable via `model`) — best cost/quality tradeoff for summarization |
 | Email delivery | `smtplib` (stdlib) or SendGrid | SMTP for simplicity; SendGrid for reliability at scale |
 | Scheduling | `APScheduler` | Lightweight in-process scheduler; easy cron-like syntax |
 | Config management | `PyYAML` + `python-dotenv` | Secrets in `.env`, non-secret config in `config.yaml` |
@@ -300,6 +300,7 @@ newsletter-digest-agent/
 | `lookback_hours` | int | `24` | How many hours back to search for newsletters |
 | `max_newsletters_per_run` | int | `20` | Cap to avoid hitting API rate limits |
 | `summary_word_target` | int | `225` | Target word count per summary |
+| `model` | str | `claude-sonnet-5` | Claude model for per-newsletter summaries and the daily advisor section; the periodic Signals Report uses the separate `signals.model` key instead |
 
 ---
 
