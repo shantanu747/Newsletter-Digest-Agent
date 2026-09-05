@@ -75,6 +75,9 @@ logs/
 eml_examples/
 test_outputs/
 
+# === Operational state ===
+data/
+
 # === Moonshot Vision Documents ===
 Moonshot/
 HANDOVER.md
