@@ -32,8 +32,7 @@ def _make_email(plain_text: str = "Some newsletter content.", is_pass_through: b
 
 def _make_api_response(text: str) -> MagicMock:
     """Return a mock that looks like an anthropic Messages response."""
-    content_block = MagicMock()
-    content_block.text = text
+    content_block = MagicMock(type="text", text=text)
     response = MagicMock()
     response.content = [content_block]
     return response

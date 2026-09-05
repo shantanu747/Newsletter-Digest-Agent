@@ -30,8 +30,7 @@ def _make_email(plain_text: str = "Some newsletter content.") -> Email:
 
 
 def _make_api_response(text: str) -> MagicMock:
-    content_block = MagicMock()
-    content_block.text = text
+    content_block = MagicMock(type="text", text=text)
     response = MagicMock()
     response.content = [content_block]
     return response
@@ -140,5 +139,44 @@ class TestSummarizeAsIdeas:
         result = summarizer.summarize_as_ideas(email, user_profile=None)
 
         assert isinstance(result, Summary)
+        assert len(result.ideas) == 1
+        assert result.ideas[0].title == "Off-Topic Idea"
+
+    def test_uses_raised_max_tokens_and_low_effort(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _make_api_response(
+            "IDEA: Off-Topic Idea\nThis newsletter covers gardening tips for beginners."
+        )
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        summarizer = ClaudeSummarizer(api_key="test-key")
+        email = _make_email(plain_text="Today we discuss the best tomato varieties.")
+        summarizer.summarize_as_ideas(email, user_profile=None)
+
+        call_kwargs = mock_client.messages.create.call_args
+        assert call_kwargs.kwargs.get("max_tokens") == 4096
+        assert call_kwargs.kwargs.get("output_config") == {"effort": "low"}
+
+    def test_thinking_block_before_text_still_parses_ideas(self, mocker):
+        mock_client = MagicMock()
+        response = MagicMock()
+        response.content = [
+            MagicMock(type="thinking", thinking="pondering..."),
+            MagicMock(
+                type="text",
+                text="IDEA: Off-Topic Idea\nThis newsletter covers gardening tips for beginners.",
+            ),
+        ]
+        mock_client.messages.create.return_value = response
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        summarizer = ClaudeSummarizer(api_key="test-key")
+        email = _make_email(plain_text="Today we discuss the best tomato varieties.")
+        result = summarizer.summarize_as_ideas(email, user_profile=None)
+
         assert len(result.ideas) == 1
         assert result.ideas[0].title == "Off-Topic Idea"

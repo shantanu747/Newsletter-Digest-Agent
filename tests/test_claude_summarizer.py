@@ -34,8 +34,7 @@ def _make_email(plain_text: str = "Some newsletter content.") -> Email:
 
 def _make_api_response(text: str) -> MagicMock:
     """Return a mock that looks like an anthropic Messages response."""
-    content_block = MagicMock()
-    content_block.text = text
+    content_block = MagicMock(type="text", text=text)
     response = MagicMock()
     response.content = [content_block]
     return response
@@ -96,7 +95,7 @@ class TestClaudeSummarizerHappyPath:
         mock_client.messages.create.assert_called_once()
 
     def test_api_called_with_correct_model(self, mocker):
-        """messages.create is called with the claude-sonnet-4-6 model."""
+        """messages.create is called with the default claude-sonnet-5 model."""
         summary_text = "word " * 225
 
         mock_client = MagicMock()
@@ -109,12 +108,26 @@ class TestClaudeSummarizerHappyPath:
         summarizer.summarize(_make_email())
 
         call_kwargs = mock_client.messages.create.call_args
-        assert call_kwargs.kwargs.get("model") == "claude-sonnet-4-6" or (
-            call_kwargs.args and call_kwargs.args[0] == "claude-sonnet-4-6"
-        )
+        assert call_kwargs.kwargs.get("model") == "claude-sonnet-5"
 
-    def test_api_called_with_max_tokens_1024(self, mocker):
-        """messages.create is called with max_tokens=1024."""
+    def test_model_kwarg_overrides_default(self, mocker):
+        """Passing model= to the constructor overrides the default model."""
+        summary_text = "word " * 225
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _make_api_response(summary_text)
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        summarizer = ClaudeSummarizer(api_key="test-key", model="claude-test-x")
+        summarizer.summarize(_make_email())
+
+        call_kwargs = mock_client.messages.create.call_args
+        assert call_kwargs.kwargs["model"] == "claude-test-x"
+
+    def test_api_called_with_max_tokens_2048(self, mocker):
+        """messages.create is called with max_tokens=2048."""
         summary_text = "word " * 225
 
         mock_client = MagicMock()
@@ -127,7 +140,62 @@ class TestClaudeSummarizerHappyPath:
         summarizer.summarize(_make_email())
 
         call_kwargs = mock_client.messages.create.call_args
-        assert call_kwargs.kwargs.get("max_tokens") == 1024
+        assert call_kwargs.kwargs.get("max_tokens") == 2048
+
+    def test_summarize_uses_raised_max_tokens_and_low_effort(self, mocker):
+        """summarize() sends max_tokens=2048 and output_config={'effort': 'low'}."""
+        summary_text = "word " * 225
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _make_api_response(summary_text)
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        summarizer = ClaudeSummarizer(api_key="test-key")
+        summarizer.summarize(_make_email())
+
+        call_kwargs = mock_client.messages.create.call_args
+        assert call_kwargs.kwargs.get("max_tokens") == 2048
+        assert call_kwargs.kwargs.get("output_config") == {"effort": "low"}
+
+    def test_thinking_block_before_text_still_parses_summary(self, mocker):
+        """A thinking block preceding the text block does not break summarize()."""
+        summary_text = "word " * 225
+
+        mock_client = MagicMock()
+        response = MagicMock()
+        response.content = [
+            MagicMock(type="thinking", thinking="pondering..."),
+            MagicMock(type="text", text=summary_text),
+        ]
+        mock_client.messages.create.return_value = response
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        summarizer = ClaudeSummarizer(api_key="test-key")
+        summary = summarizer.summarize(_make_email())
+
+        assert summary.word_count == 225
+
+    def test_max_tokens_stop_reason_logs_truncation_warning(self, mocker):
+        """A stop_reason of 'max_tokens' emits a summary_truncated warning log."""
+        summary_text = "word " * 225
+
+        mock_client = MagicMock()
+        response = _make_api_response(summary_text)
+        response.stop_reason = "max_tokens"
+        mock_client.messages.create.return_value = response
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        summarizer = ClaudeSummarizer(api_key="test-key")
+        mocker.patch.object(summarizer._log, "warning")
+        summarizer.summarize(_make_email())
+
+        summarizer._log.warning.assert_any_call("summary_truncated", message_id="msg-001")
 
 
 class TestClaudeSummarizerRetryOnAPIError:
