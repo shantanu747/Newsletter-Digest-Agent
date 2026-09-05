@@ -60,7 +60,7 @@ def _make_analyzer(profile: UserProfile | None = None) -> AdvisorAnalyzer:
 def _mock_response(text: str) -> MagicMock:
     """Build a mock Anthropic message response."""
     response = MagicMock()
-    response.content = [MagicMock(text=text)]
+    response.content = [MagicMock(type="text", text=text)]
     return response
 
 
@@ -140,6 +140,7 @@ class TestAnalyze:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response(raw)
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
 
         analyzer = _make_analyzer()
         summaries = [_make_summary("Oil Prices Rise", "Global oil prices climbed 5% today.")]
@@ -154,6 +155,7 @@ class TestAnalyze:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response("No implications.")
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
 
         profile = _make_profile(interests=["renewable energy", "battery technology"])
         analyzer = _make_analyzer(profile)
@@ -167,6 +169,7 @@ class TestAnalyze:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response("No implications.")
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
 
         profile = _make_profile(portfolio=[{"ticker": "AAPL", "name": "Apple"}])
         analyzer = _make_analyzer(profile)
@@ -180,6 +183,7 @@ class TestAnalyze:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response("No implications.")
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
 
         profile = _make_profile(custom_prompts=["Flag SpaceX news specifically."])
         analyzer = _make_analyzer(profile)
@@ -192,6 +196,7 @@ class TestAnalyze:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response("No implications.")
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
 
         analyzer = _make_analyzer()
         summaries = [
@@ -211,6 +216,7 @@ class TestAnalyze:
             _mock_response("No implications."),
         ]
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
         mocker.patch("time.sleep")
 
         analyzer = _make_analyzer()
@@ -226,6 +232,7 @@ class TestAnalyze:
             anthropic.RateLimitError
         )
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
         mocker.patch("time.sleep")
 
         analyzer = _make_analyzer()
@@ -235,3 +242,73 @@ class TestAnalyze:
         assert mock_client.messages.create.call_count == 3
         assert result.relevance_text is None
         assert result.signals_text is None
+
+
+# ---------------------------------------------------------------------------
+# Model configuration and rate limiting
+# ---------------------------------------------------------------------------
+
+class TestAdvisorModelAndRateLimiting:
+
+    def test_default_model_is_sonnet_5(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_response("No implications.")
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+
+        analyzer = _make_analyzer()
+        analyzer.analyze([_make_summary("test", "test")])
+
+        call_kwargs = mock_client.messages.create.call_args
+        assert call_kwargs.kwargs.get("model") == "claude-sonnet-5"
+
+    def test_model_kwarg_overrides_default(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_response("No implications.")
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+
+        analyzer = AdvisorAnalyzer(api_key="test-key", user_profile=_make_profile(), model="claude-test-x")
+        analyzer.analyze([_make_summary("test", "test")])
+
+        call_kwargs = mock_client.messages.create.call_args
+        assert call_kwargs.kwargs["model"] == "claude-test-x"
+
+    def test_rate_limiter_acquired_before_every_attempt(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = anthropic.RateLimitError.__new__(
+            anthropic.RateLimitError
+        )
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mock_acquire = mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+        mocker.patch("time.sleep")
+
+        analyzer = _make_analyzer()
+        analyzer.analyze([_make_summary("test", "test")])
+
+        assert mock_acquire.call_count == 3
+
+    def test_thinking_block_before_text_still_parses(self, mocker):
+        raw = (
+            f"{_RELEVANCE_DELIMITER}\n"
+            "UAL at risk from rising fuel costs.\n"
+            f"{_SIGNALS_DELIMITER}\n"
+            "[BUY] XOM (ExxonMobil) — oil price tailwind."
+        )
+        mock_client = MagicMock()
+        response = MagicMock()
+        response.content = [
+            MagicMock(type="thinking", thinking="pondering..."),
+            MagicMock(type="text", text=raw),
+        ]
+        mock_client.messages.create.return_value = response
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+
+        analyzer = _make_analyzer()
+        result = analyzer.analyze([_make_summary("test", "test")])
+
+        assert result.relevance_text is not None
+        assert "UAL" in result.relevance_text
+        assert result.signals_text is not None
+        assert "XOM" in result.signals_text

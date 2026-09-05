@@ -13,9 +13,15 @@ import time
 
 import anthropic
 
+from agent.utils.anthropic_text import extract_text
 from agent.utils.config import UserProfile
 from agent.utils.logger import get_logger
 from agent.utils.models import AdvisorAnalysis, Summary
+from agent.utils.rate_limiter import TokenBucketLimiter
+
+_DEFAULT_MODEL = "claude-sonnet-5"
+_MAX_TOKENS = 2400  # was 1200; adaptive thinking shares this budget
+_OUTPUT_CONFIG = {"effort": "low"}  # extraction/synthesis work — keep thinking short
 
 _RELEVANCE_DELIMITER = "---RELEVANCE---"
 _SIGNALS_DELIMITER = "---SIGNALS---"
@@ -67,10 +73,12 @@ def _fmt_holdings(items: list[dict]) -> str:
 class AdvisorAnalyzer:
     """Produces a single personalized advisor analysis across all digest summaries."""
 
-    def __init__(self, api_key: str, user_profile: UserProfile) -> None:
+    def __init__(self, api_key: str, user_profile: UserProfile, *, model: str = _DEFAULT_MODEL) -> None:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._profile = user_profile
+        self._model = model
         self._log = get_logger(__name__)
+        self._limiter = TokenBucketLimiter(rate=0.5, capacity=1)
 
     def _build_system_prompt(self) -> str:
         interests_str = ", ".join(self._profile.interests) or "none"
@@ -136,13 +144,15 @@ class AdvisorAnalyzer:
         last_exc = None
         for attempt in range(3):
             try:
+                self._limiter.acquire()
                 response = self._client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=1200,
+                    model=self._model,
+                    max_tokens=_MAX_TOKENS,
+                    output_config=_OUTPUT_CONFIG,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_message}],
                 )
-                raw_text = response.content[0].text.strip().replace("**", "")
+                raw_text = extract_text(response).replace("**", "")
                 analysis = self._parse_response(raw_text)
                 self._log.info(
                     "advisor_analysis_complete",
@@ -150,6 +160,7 @@ class AdvisorAnalyzer:
                     has_relevance=analysis.relevance_text is not None,
                     has_signals=analysis.signals_text is not None,
                     attempt=attempt + 1,
+                    stop_reason=getattr(response, "stop_reason", None),
                 )
                 return analysis
             except (anthropic.APIError, anthropic.RateLimitError) as exc:
