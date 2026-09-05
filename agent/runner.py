@@ -46,6 +46,7 @@ class NewsletterAgent:
         self._parser = EmailParser()
         self._summarizer = ClaudeSummarizer(
             api_key=config.anthropic_api_key,
+            model=config.model,
             summary_length_mode=config.summary_length_mode,
             summary_word_target=config.summary_word_target,
             summary_percentage=config.summary_percentage,
@@ -172,6 +173,7 @@ class NewsletterAgent:
                 advisor = AdvisorAnalyzer(
                     api_key=self.config.anthropic_api_key,
                     user_profile=self.config.user_profile,
+                    model=self.config.model,
                 ).analyze([e.summary for e in entries])
 
             # Observation recording — must happen before delivery/move_to_trash, since a
