@@ -296,3 +296,17 @@ Tests:
 - [ ] `track_record_enabled: false` → no fetch, no new prompt text, no section.
 - [ ] `pytest -q -m "not integration"` green; `ruff check agent/` clean; touched files clean.
 - [ ] Manual smoke: `python -m agent --signals-dry-run` on a store with calls older than 7 days prints `Track record: N reviews` and the rendered section is visible via `scripts/signals_preview.py --open` (extend the preview script's `_synthesize` to insert a few back-dated `signal_call` rows so this can be exercised without waiting a week).
+
+## Follow-ups
+
+`seed_aliases_from_profile` in `agent/knowledge/canonicalize.py` is still unwired
+(`entity_alias` never populated), which limits alias resolution in
+`recent_context`; wiring it at store open is a small later task (Phase 6,
+T076-ish) and would improve both plan 03 badges and this plan's mention stats.
+
+Clarifications settled during implementation (2026-09-05): `_PRICE_SLACK_DAYS = 5`
+(Step 3 wins over the design table's "< 3 trading days"); `recent_context` runs
+with `until` = now date (everything since the call, per the "now date" answer —
+`mentions_since`/`sources_since`/`sentiment_since` are cumulative, not capped at
+the horizon day); branch kept as `feature/signals-track-record` (plan header wins
+over plans/README's `001-` prefix).
