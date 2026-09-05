@@ -1,6 +1,7 @@
 # Plan 03 — Give the daily digest its memory: store context for the advisor + "Recurring" badge
 
 **Branch:** `feature/digest-store-context` (cut from `main` after plan 02 merges)
+
 **Depends on:** plan 01 (entities recorded; `extract_text`; `config.model`), plan 02 (template
 "context above entries" pattern and `absorbed` variable in the builder)
 **Unblocks:** plan 04 (reuses the `recent_context` query shape for "mentions since the call")

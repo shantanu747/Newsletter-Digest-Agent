@@ -1,6 +1,7 @@
 # Plan 01 — Model upgrade to `claude-sonnet-5` + knowledge-extraction wiring fix
 
 **Branch:** `improvements/model-upgrade-sonnet-5` (cut from `main`)
+
 **Depends on:** nothing
 **Unblocks:** plans 02, 03, 04 (all three rely on entities actually being recorded in the store)
 

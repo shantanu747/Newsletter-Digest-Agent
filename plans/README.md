@@ -1,5 +1,6 @@
 # Implementation Plans — Advisor Upgrade Series
 
+
 Four plans, implemented **in order**, each on its own branch cut from `main` after the previous
 plan's branch has merged. Each plan is self-contained: it names its branch, lists every file it
 touches, gives function signatures, and specifies the tests that prove it works.

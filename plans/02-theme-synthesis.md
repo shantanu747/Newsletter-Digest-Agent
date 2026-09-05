@@ -1,6 +1,7 @@
 # Plan 02 — Cross-newsletter theme synthesis (P3, tasks T066–T072)
 
 **Branch:** `feature/theme-synthesis` (cut from `main` after plan 01 merges)
+
 **Depends on:** plan 01 (entities must actually be extracted; `extract_text` helper; `config.model`)
 **Unblocks:** plan 03 (shares the "context block above the entries" template pattern)
 

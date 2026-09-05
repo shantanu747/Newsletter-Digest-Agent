@@ -1,6 +1,7 @@
 # Plan 04 — Signals track record: the advisor remembers its calls and scores them
 
 **Branch:** `feature/signals-track-record` (cut from `main` after plan 03 merges)
+
 **Depends on:** plan 01 (`extract_text`), plan 03 (`recent_context`-style window queries)
 
 ## Why
