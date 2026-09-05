@@ -97,7 +97,7 @@ class NewsletterAgent:
             return
 
         observation_store = None
-        if self.config.knowledge is not None and not self.dry_run:
+        if self.config.knowledge is not None and self.config.knowledge.enabled:
             from agent.knowledge.store import ObservationStore
             observation_store = ObservationStore(self.config.knowledge.db_path)
 
@@ -167,6 +167,23 @@ class NewsletterAgent:
             if not entries and not failed_subjects:
                 continue
 
+            # Observation recording — must happen before delivery/move_to_trash, since a
+            # trashed email's mentions become unrecoverable (FR-007). --preview writes here
+            # deliberately; --dry-run only reads (recording stays gated below).
+            if observation_store is not None and not self.dry_run:
+                for entry in entries:
+                    observation_store.record_summary(entry.summary)
+
+            # Recurring-entity context — one store query per batch. `until` is the start
+            # of today so today's own mentions are excluded from the window.
+            entity_context: dict = {}
+            if observation_store is not None:
+                from agent.knowledge.context import collect_norm_keys, context_window
+                since, until = context_window(run_date)
+                entity_context = observation_store.recent_context(
+                    collect_norm_keys(entries), since, until
+                )
+
             # Advisor analysis — one call across all summaries in this batch
             advisor = None
             if self.config.user_profile is not None and entries:
@@ -175,14 +192,7 @@ class NewsletterAgent:
                     api_key=self.config.anthropic_api_key,
                     user_profile=self.config.user_profile,
                     model=self.config.model,
-                ).analyze([e.summary for e in entries])
-
-            # Observation recording — must happen before delivery/move_to_trash, since a
-            # trashed email's mentions become unrecoverable (FR-007). --preview writes here
-            # deliberately; --dry-run does not (observation_store is None in that case).
-            if observation_store is not None:
-                for entry in entries:
-                    observation_store.record_summary(entry.summary)
+                ).analyze([e.summary for e in entries], entity_context=entity_context)
 
             # Theme synthesis — merge cross-newsletter stories into Today's Themes block
             themes: tuple[Theme, ...] = ()
@@ -206,6 +216,7 @@ class NewsletterAgent:
                 total_batches=total_batches,
                 advisor=advisor,
                 themes=themes,
+                entity_context=entity_context,
             )
 
             # Build digest HTML
@@ -255,8 +266,12 @@ class NewsletterAgent:
                     mode = "[PASS-THROUGH]" if entry.is_pass_through else "[SUMMARIZED]"
                     print(f"\n{mode} [{entry.display_name}] {entry.summary.subject}")
                     if entry.summary.ideas:
+                        from agent.knowledge.context import badge_for_idea
                         for idea in entry.summary.ideas:
                             print(f"  • {idea.title}")
+                            badge = badge_for_idea(idea, digest_batch.entity_context)
+                            if badge is not None:
+                                print(f"    {badge}")
                             body = idea.summary_text
                             print(f"    {body[:200] + '...' if len(body) > 200 else body}")
                     else:
