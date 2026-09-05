@@ -32,6 +32,7 @@ _KNOWN_KNOWLEDGE_KEYS = {"enabled", "db_path", "retention_days", "max_entities_p
 _KNOWN_SIGNALS_KEYS = {
     "enabled", "interval_days", "window_days", "min_mentions", "min_sources",
     "max_entities_in_prompt", "web_search_enabled", "web_search_max_uses", "model",
+    "track_record_enabled",
 }
 _KNOWN_MACRO_KEYS = {"enabled", "series", "cache_hours"}
 
@@ -83,6 +84,7 @@ class SignalsConfig:
     web_search_enabled: bool = False
     web_search_max_uses: int = 5
     model: str = "claude-opus-5"
+    track_record_enabled: bool = True
 
 
 @dataclass
@@ -286,6 +288,7 @@ def _parse_signals_config(raw: dict) -> SignalsConfig:
         web_search_enabled=bool(raw.get("web_search_enabled", False)),
         web_search_max_uses=int(raw.get("web_search_max_uses", 5)),
         model=str(raw.get("model", "claude-opus-5")),
+        track_record_enabled=bool(raw.get("track_record_enabled", True)),
     )
 
 

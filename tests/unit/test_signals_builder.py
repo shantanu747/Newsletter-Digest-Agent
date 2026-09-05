@@ -9,10 +9,10 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from agent.digest.builder import build_signals
-from agent.utils.models import MacroIndicator, MacroSnapshot, SignalItem, SignalsReport
+from agent.utils.models import CallReview, MacroIndicator, MacroSnapshot, SignalItem, SignalsReport
 
 _RUN_DATE = datetime(2026, 9, 3, tzinfo=timezone.utc)
 
@@ -124,3 +124,56 @@ class TestMacroDashboard:
     def test_macro_section_absent_when_none(self):
         html = build_signals(_make_report(macro=None), _RUN_DATE)
         assert "Macro Dashboard" not in html
+
+
+def _make_review(**overrides) -> CallReview:
+    defaults = dict(
+        call_id=17,
+        made_on=date(2026, 8, 27),
+        horizon_days=7,
+        section="opportunities",
+        headline="Data center demand still climbing",
+        confidence="HIGH",
+        entities=("Nvidia",),
+        ticker="NVDA",
+        price_change_pct=12.4,
+        mentions_since=9,
+        sources_since=4,
+        sentiment_since=0.5,
+        commentary="The call played out.",
+    )
+    defaults.update(overrides)
+    return CallReview(**defaults)
+
+
+class TestTrackRecordSection:
+    def test_section_absent_when_track_record_empty(self):
+        html = build_signals(_make_report(), _RUN_DATE)
+        assert "Track Record" not in html
+
+    def test_renders_price_and_mentions(self):
+        html = build_signals(_make_report(track_record=(_make_review(),)), _RUN_DATE)
+        assert "Track Record" in html
+        assert "7-day review" in html
+        assert "NVDA" in html
+        assert "+12.4%" in html
+        assert "9 mentions from 4 newsletters since" in html
+        assert "The call played out." in html
+
+    def test_omits_price_when_none(self):
+        html = build_signals(
+            _make_report(track_record=(_make_review(price_change_pct=None, ticker=None),)),
+            _RUN_DATE,
+        )
+        assert "NVDA" not in html
+        assert "9 mentions from 4 newsletters since" in html
+
+    def test_commentary_optional_and_singular_pluralization(self):
+        html = build_signals(
+            _make_report(
+                track_record=(_make_review(commentary="", mentions_since=1, sources_since=1),)
+            ),
+            _RUN_DATE,
+        )
+        assert "The call played out." not in html
+        assert "1 mention from 1 newsletter since" in html

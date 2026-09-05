@@ -10,19 +10,31 @@ but it is optional — the daily digest must never go down because of it.
 from __future__ import annotations
 
 import functools
+import json
 import os
 import sqlite3
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from agent.knowledge.canonicalize import normalize_key
 from agent.utils.logger import get_logger
-from agent.utils.models import CooccurrenceEdge, EntityContext, EntityMention, EntityTrend, Summary
+from agent.utils.models import (
+    CallReview,
+    CooccurrenceEdge,
+    EntityContext,
+    EntityMention,
+    EntityTrend,
+    SignalCallRow,
+    SignalsReport,
+    Summary,
+)
 
 log = get_logger(__name__)
 
-_SCHEMA_VERSION = "1"
+_SCHEMA_VERSION = "2"
+
+_CALL_SECTIONS = ("risks", "opportunities", "emerging", "fading", "watch")
 
 _RECENT_CONTEXT_CHUNK_SIZE = 400
 
@@ -77,6 +89,33 @@ _SCHEMA_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS schema_meta (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS signal_call (
+        id INTEGER PRIMARY KEY,
+        report_date TEXT NOT NULL,
+        section TEXT NOT NULL,
+        headline TEXT NOT NULL,
+        body TEXT NOT NULL,
+        confidence TEXT NOT NULL,
+        entity_names TEXT NOT NULL,
+        ticker TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_signal_call_report_date ON signal_call(report_date)",
+    """CREATE TABLE IF NOT EXISTS signal_review (
+        call_id INTEGER NOT NULL REFERENCES signal_call(id),
+        horizon_days INTEGER NOT NULL,
+        reviewed_at TEXT NOT NULL,
+        price_change_pct REAL,
+        mentions_since INTEGER NOT NULL,
+        sources_since INTEGER NOT NULL,
+        sentiment_since REAL NOT NULL,
+        PRIMARY KEY (call_id, horizon_days)
+    )""",
+    """CREATE TABLE IF NOT EXISTS price_daily (
+        ticker TEXT NOT NULL,
+        day TEXT NOT NULL,
+        close REAL NOT NULL,
+        PRIMARY KEY (ticker, day)
     )""",
 )
 
@@ -140,7 +179,7 @@ class ObservationStore:
             for statement in _SCHEMA_STATEMENTS:
                 conn.execute(statement)
             conn.execute(
-                "INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', ?)",
+                "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', ?)",
                 (_SCHEMA_VERSION,),
             )
 
@@ -412,3 +451,140 @@ class ObservationStore:
                 "last_status=excluded.last_status",
                 (job_name, now.isoformat(), status),
             )
+
+    @_guarded(default=lambda: 0)
+    def record_signal_calls(
+        self,
+        report: SignalsReport,
+        report_date: date,
+        ticker_for: Callable[[tuple[str, ...]], str | None],
+    ) -> int:
+        """Persist every call in the five scored sections for *report_date*.
+
+        Deletes existing rows for the same date first so re-runs replace rather
+        than duplicate. `divergences` are not calls and are never recorded.
+        """
+        date_s = report_date.isoformat()
+        count = 0
+        with self._connect() as conn:
+            conn.execute("DELETE FROM signal_call WHERE report_date = ?", (date_s,))
+            for section in _CALL_SECTIONS:
+                for item in getattr(report, section):
+                    conn.execute(
+                        "INSERT INTO signal_call "
+                        "(report_date, section, headline, body, confidence, entity_names, ticker) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            date_s,
+                            section,
+                            item.headline,
+                            item.body,
+                            item.confidence,
+                            json.dumps(list(item.entities)),
+                            ticker_for(item.entities),
+                        ),
+                    )
+                    count += 1
+        return count
+
+    @_guarded(default=list)
+    def calls_due_for_review(
+        self, now: datetime, horizons: Sequence[int], max_age_days: int
+    ) -> list[tuple[SignalCallRow, int]]:
+        """Every (call, horizon) pair due for review as of *now*.
+
+        A pair is due when `report_date + horizon <= now.date()`,
+        `report_date >= now.date() - max_age_days`, and no `signal_review`
+        row exists for that pair. Ordered by report_date, id, horizon.
+        """
+        horizons = sorted(set(horizons))
+        if not horizons:
+            return []
+        today_s = now.date().isoformat()
+        cutoff_s = (now.date() - timedelta(days=max_age_days)).isoformat()
+        due: list[tuple[SignalCallRow, int]] = []
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, report_date, section, headline, body, confidence, entity_names, ticker "
+                "FROM signal_call WHERE report_date >= ? AND report_date <= ? "
+                "ORDER BY report_date, id",
+                (cutoff_s, today_s),
+            ).fetchall()
+            for row in rows:
+                call_id, report_date_s, section, headline, body, confidence, entity_names_s, ticker = row
+                report_day = date.fromisoformat(report_date_s)
+                age_days = (now.date() - report_day).days
+                for horizon in horizons:
+                    if age_days < horizon:
+                        continue
+                    exists = conn.execute(
+                        "SELECT 1 FROM signal_review WHERE call_id = ? AND horizon_days = ?",
+                        (call_id, horizon),
+                    ).fetchone()
+                    if exists is not None:
+                        continue
+                    due.append(
+                        (
+                            SignalCallRow(
+                                id=call_id,
+                                report_date=report_date_s,
+                                section=section,
+                                headline=headline,
+                                body=body,
+                                confidence=confidence,
+                                entity_names=tuple(json.loads(entity_names_s)),
+                                ticker=ticker,
+                            ),
+                            horizon,
+                        )
+                    )
+        return due
+
+    @_guarded(default=lambda: 0)
+    def record_reviews(self, reviews: Sequence[CallReview], now: datetime) -> int:
+        """Persist computed reviews. INSERT OR REPLACE — re-runs overwrite. Returns count."""
+        reviewed_at = now.isoformat()
+        count = 0
+        with self._connect() as conn:
+            for review in reviews:
+                conn.execute(
+                    "INSERT OR REPLACE INTO signal_review "
+                    "(call_id, horizon_days, reviewed_at, price_change_pct, "
+                    "mentions_since, sources_since, sentiment_since) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        review.call_id,
+                        review.horizon_days,
+                        reviewed_at,
+                        review.price_change_pct,
+                        review.mentions_since,
+                        review.sources_since,
+                        review.sentiment_since,
+                    ),
+                )
+                count += 1
+        return count
+
+    @_guarded(default=lambda: 0)
+    def upsert_prices(self, ticker: str, rows: Sequence[tuple[str, float]]) -> int:
+        """Cache daily closes for *ticker*. Idempotent — re-upserts overwrite."""
+        count = 0
+        with self._connect() as conn:
+            for day, close in rows:
+                conn.execute(
+                    "INSERT OR REPLACE INTO price_daily (ticker, day, close) VALUES (?, ?, ?)",
+                    (ticker, day, close),
+                )
+                count += 1
+        return count
+
+    @_guarded(default=list)
+    def closes_between(self, ticker: str, start: date, end: date) -> list[tuple[str, float]]:
+        """Cached closes for *ticker* in [start, end], ascending by day."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT day, close FROM price_daily WHERE ticker = ? AND day >= ? AND day <= ? "
+                "ORDER BY day",
+                (ticker, start.isoformat(), end.isoformat()),
+            ).fetchall()
+        return [(day, close) for day, close in rows]

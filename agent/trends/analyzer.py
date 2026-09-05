@@ -23,8 +23,9 @@ import anthropic
 from agent.utils.anthropic_text import extract_text
 from agent.utils.config import SignalsConfig, UserProfile
 from agent.utils.logger import get_logger
-from agent.utils.models import MacroSnapshot, SignalItem, SignalsReport, TrendBrief
+from agent.utils.models import CallReview, MacroSnapshot, SignalItem, SignalsReport, TrendBrief
 from agent.utils.rate_limiter import TokenBucketLimiter
+from collections.abc import Sequence
 
 _SECTION_DELIMITERS = (
     ("risks", "---RISKS---"),
@@ -33,6 +34,7 @@ _SECTION_DELIMITERS = (
     ("fading", "---FADING---"),
     ("watch", "---WATCH---"),
     ("divergences", "---DIVERGENCE---"),
+    ("track_record", "---TRACK RECORD---"),
 )
 
 _ITEM_RE = re.compile(
@@ -40,6 +42,11 @@ _ITEM_RE = re.compile(
     r"CONFIDENCE:\s*(?P<confidence>HIGH|MEDIUM|LOW)\s*\n"
     r"ENTITIES:\s*(?P<entities>.*?)\s*\n"
     r"BODY:\s*(?P<body>.+?)(?=\n\s*HEADLINE:|\Z)",
+    re.DOTALL,
+)
+
+_REVIEW_RE = re.compile(
+    r"CALL_ID:\s*(?P<id>\d+)\s*\nBODY:\s*(?P<body>.+?)(?=\nCALL_ID:|\Z)",
     re.DOTALL,
 )
 
@@ -74,6 +81,7 @@ _SYSTEM_PROMPT = (
     "indicators below appear to contradict each other; leave it empty if no macro data "
     "is provided or nothing diverges.\n\n"
     "{brief_text}"
+    "{track_record_block}"
 )
 
 
@@ -108,6 +116,34 @@ def _format_macro(macro: MacroSnapshot | None) -> str:
         alarm = " [ALARM]" if ind.alarm else ""
         lines.append(f"- {ind.label} ({ind.series_id}): {ind.value} as of {ind.as_of}, {ind.direction}{alarm}. {ind.note}")
     return "\n".join(lines) + "\n"
+
+
+def _format_review(review: CallReview) -> str:
+    price = f"{review.price_change_pct:+.1f}%" if review.price_change_pct is not None else "n/a"
+    ticker = review.ticker or "no ticker"
+    entities = ", ".join(review.entities) or "none"
+    return (
+        f"CALL_ID {review.call_id} | made {review.made_on.isoformat()} | {review.horizon_days}d | "
+        f"{review.section.upper()} | {review.confidence} | \"{review.headline}\" | {entities} | "
+        f"price {price} ({ticker}) | {review.mentions_since} mentions from "
+        f"{review.sources_since} newsletters since, sentiment {review.sentiment_since:+.1f}"
+    )
+
+
+def _build_track_record_block(track_record: Sequence[CallReview]) -> str:
+    if not track_record:
+        return ""
+    lines = "\n".join(_format_review(r) for r in track_record)
+    return (
+        "\nTRACK RECORD — your earlier calls, now reviewed (numbers computed deterministically):\n"
+        f"{lines}\n\n"
+        "---TRACK RECORD---\n"
+        "For each CALL_ID in the TRACK RECORD list (and only those ids), write:\n"
+        "CALL_ID: <id>\n"
+        "BODY: one or two sentences — did the call play out, and what does the price and coverage "
+        "evidence say about why. Be direct; \"too early to tell\" is a valid verdict when the "
+        "evidence is flat.\n"
+    )
 
 
 def _build_brief_text(brief: TrendBrief, macro: MacroSnapshot | None) -> str:
@@ -155,6 +191,27 @@ def _split_sections(raw_text: str) -> dict[str, str]:
     return sections
 
 
+def _parse_track_record_commentary(
+    raw_text: str, track_record: Sequence[CallReview], log=None
+) -> dict[int, str]:
+    """Map known call ids to their model-written commentary.
+
+    Ids not present in the supplied *track_record* are dropped and logged
+    (FR-019 pattern). Reviews with no commentary keep ``commentary=""``.
+    """
+    known = {r.call_id for r in track_record}
+    sections = _split_sections(raw_text)
+    commentary: dict[int, str] = {}
+    for match in _REVIEW_RE.finditer(sections.get("track_record", "")):
+        call_id = int(match.group("id"))
+        if call_id not in known:
+            if log is not None:
+                log.warning("track_record_unknown_call_id", call_id=call_id)
+            continue
+        commentary[call_id] = match.group("body").strip()
+    return commentary
+
+
 def _parse_response(raw_text: str, brief: TrendBrief) -> dict[str, tuple[SignalItem, ...]]:
     """Deterministic validator run before a SignalsReport is constructed.
 
@@ -194,17 +251,31 @@ class TrendAnalyzer:
         self._log = get_logger(__name__)
         self._limiter = TokenBucketLimiter(rate=0.5, capacity=1)
 
-    def _build_system_prompt(self, brief: TrendBrief, macro: MacroSnapshot | None) -> str:
-        return _SYSTEM_PROMPT.format(brief_text=_build_brief_text(brief, macro))
+    def _build_system_prompt(
+        self,
+        brief: TrendBrief,
+        macro: MacroSnapshot | None,
+        track_record: Sequence[CallReview] = (),
+    ) -> str:
+        return _SYSTEM_PROMPT.format(
+            brief_text=_build_brief_text(brief, macro),
+            track_record_block=_build_track_record_block(track_record),
+        )
 
-    def analyze(self, brief: TrendBrief, macro: MacroSnapshot | None) -> SignalsReport:
+    def analyze(
+        self,
+        brief: TrendBrief,
+        macro: MacroSnapshot | None,
+        track_record: Sequence[CallReview] = (),
+    ) -> SignalsReport:
         """Run the trend interpretation call. Never raises.
 
         On retry exhaustion, returns a SignalsReport with empty signal tuples but
         *macro* passed through unchanged — a populated macro dashboard is a valid,
         deliverable artifact even when the model call fails entirely (FR-038, SC-009).
         """
-        system_prompt = self._build_system_prompt(brief, macro)
+        system_prompt = self._build_system_prompt(brief, macro, track_record)
+        track_record = tuple(track_record)
 
         last_exc = None
         for attempt in range(3):
@@ -218,6 +289,25 @@ class TrendAnalyzer:
                 )
                 raw_text = extract_text(response)
                 sections = _parse_response(raw_text, brief)
+                commentary = _parse_track_record_commentary(raw_text, track_record, self._log)
+                reviewed = tuple(
+                    CallReview(
+                        call_id=r.call_id,
+                        made_on=r.made_on,
+                        horizon_days=r.horizon_days,
+                        section=r.section,
+                        headline=r.headline,
+                        confidence=r.confidence,
+                        entities=r.entities,
+                        ticker=r.ticker,
+                        price_change_pct=r.price_change_pct,
+                        mentions_since=r.mentions_since,
+                        sources_since=r.sources_since,
+                        sentiment_since=r.sentiment_since,
+                        commentary=commentary.get(r.call_id, ""),
+                    )
+                    for r in track_record
+                )
                 self._log.info(
                     "trend_analysis_complete",
                     risk_count=len(sections["risks"]),
@@ -226,6 +316,7 @@ class TrendAnalyzer:
                     fading_count=len(sections["fading"]),
                     watch_count=len(sections["watch"]),
                     divergence_count=len(sections["divergences"]),
+                    track_record_count=len(reviewed),
                     attempt=attempt + 1,
                 )
                 return SignalsReport(
@@ -240,6 +331,7 @@ class TrendAnalyzer:
                     divergences=sections["divergences"],
                     is_cold_start=brief.is_cold_start,
                     observation_count=brief.total_observations,
+                    track_record=reviewed,
                 )
             except (anthropic.APIError, anthropic.RateLimitError) as exc:
                 last_exc = exc
@@ -263,4 +355,5 @@ class TrendAnalyzer:
             macro=macro,
             is_cold_start=brief.is_cold_start,
             observation_count=brief.total_observations,
+            track_record=tuple(track_record),
         )

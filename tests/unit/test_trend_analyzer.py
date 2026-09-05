@@ -10,14 +10,14 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import MagicMock
 
 import anthropic
 
 from agent.trends.analyzer import TrendAnalyzer
 from agent.utils.config import SignalsConfig
-from agent.utils.models import EntityTrend, TrendBrief
+from agent.utils.models import CallReview, EntityTrend, TrendBrief
 
 
 def _make_config(**overrides) -> SignalsConfig:
@@ -68,6 +68,36 @@ def _mock_response(text: str) -> MagicMock:
     response = MagicMock()
     response.content = [MagicMock(type="text", text=text)]
     return response
+
+
+def _make_review(call_id: int = 17, **overrides) -> CallReview:
+    defaults = dict(
+        call_id=call_id,
+        made_on=date(2026, 8, 5),
+        horizon_days=30,
+        section="opportunities",
+        headline="Data center demand still climbing",
+        confidence="HIGH",
+        entities=("Nvidia",),
+        ticker="NVDA",
+        price_change_pct=12.4,
+        mentions_since=9,
+        sources_since=4,
+        sentiment_since=0.5,
+    )
+    defaults.update(overrides)
+    return CallReview(**defaults)
+
+
+def _analyze_with_mock(mocker, raw: str, track_record=()):
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_response(raw)
+    mocker.patch("anthropic.Anthropic", return_value=mock_client)
+    mocker.patch("agent.trends.analyzer.TokenBucketLimiter.acquire")
+
+    analyzer = _make_analyzer()
+    report = analyzer.analyze(_make_brief(), macro=None, track_record=track_record)
+    return report, mock_client
 
 
 class TestParseResponse:
@@ -138,6 +168,65 @@ class TestParseResponse:
 
         assert len(report.watch) == 1
         assert report.watch[0].confidence == "MEDIUM"
+
+
+class TestTrackRecordCommentary:
+    def test_prompt_contains_track_record_block_only_when_supplied(self, mocker):
+        _, mock_client = _analyze_with_mock(mocker, "---RISKS---\n", track_record=(_make_review(),))
+        system_prompt = mock_client.messages.create.call_args.kwargs["system"]
+        assert "TRACK RECORD" in system_prompt
+        assert "CALL_ID 17" in system_prompt
+
+        _, mock_client_empty = _analyze_with_mock(mocker, "---RISKS---\n")
+        system_prompt_empty = mock_client_empty.messages.create.call_args.kwargs["system"]
+        assert "TRACK RECORD" not in system_prompt_empty
+
+    def test_commentary_attached_to_right_review(self, mocker):
+        raw = (
+            "---RISKS---\n"
+            "---TRACK RECORD---\n"
+            "CALL_ID: 17\n"
+            "BODY: The call played out — price and coverage both confirm it.\n"
+            "CALL_ID: 18\n"
+            "BODY: Too early to tell; evidence is flat.\n"
+        )
+        report, _ = _analyze_with_mock(
+            mocker, raw, track_record=(_make_review(17), _make_review(18))
+        )
+
+        by_id = {r.call_id: r for r in report.track_record}
+        assert by_id[17].commentary == "The call played out — price and coverage both confirm it."
+        assert by_id[18].commentary == "Too early to tell; evidence is flat."
+
+    def test_unknown_id_dropped(self, mocker):
+        raw = (
+            "---RISKS---\n"
+            "---TRACK RECORD---\n"
+            "CALL_ID: 999\n"
+            "BODY: Fabricated commentary.\n"
+        )
+        report, _ = _analyze_with_mock(mocker, raw, track_record=(_make_review(17),))
+
+        assert len(report.track_record) == 1
+        assert report.track_record[0].commentary == ""
+
+    def test_missing_section_leaves_commentary_empty(self, mocker):
+        report, _ = _analyze_with_mock(mocker, "---RISKS---\n", track_record=(_make_review(),))
+
+        assert report.track_record[0].commentary == ""
+
+    def test_exhaustion_passes_reviews_through(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = anthropic.APIError.__new__(anthropic.APIError)
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("time.sleep")
+        mocker.patch("agent.trends.analyzer.TokenBucketLimiter.acquire")
+
+        analyzer = _make_analyzer()
+        reviews = (_make_review(),)
+        report = analyzer.analyze(_make_brief(), macro=None, track_record=reviews)
+
+        assert report.track_record == reviews
 
 
 class TestAnalyzeRetryAndDegradation:

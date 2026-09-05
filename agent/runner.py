@@ -335,20 +335,29 @@ class NewsletterAgent:
 
         status = "failure"
         try:
+            from agent.prices.stooq import StooqPriceFetcher
             from agent.trends.metrics import compute_brief
             from agent.trends.analyzer import TrendAnalyzer
+            from agent.trends.track_record import build_track_record, resolve_ticker
             from agent.digest.builder import build_signals
+            from agent.utils.models import CallReview
 
             brief = compute_brief(store, self.config.signals, now)
             # FredFetcher lands in a later phase (US2) — the macro dashboard renders
             # nothing until then, which is a valid, expected render (report.macro is None).
             macro = None
 
+            track_record: tuple[CallReview, ...] = ()
+            if self.config.signals.track_record_enabled:
+                track_record = build_track_record(
+                    store, self.config.user_profile, StooqPriceFetcher(), now
+                )
+
             report = TrendAnalyzer(
                 api_key=self.config.anthropic_api_key,
                 config=self.config.signals,
                 user_profile=self.config.user_profile,
-            ).analyze(brief, macro)
+            ).analyze(brief, macro, track_record=track_record)
 
             html = build_signals(report, now)
             subject = f"Signals Report — {now.strftime('%B %-d, %Y')}"
@@ -359,11 +368,18 @@ class NewsletterAgent:
                 print(
                     f"Risks: {len(report.risks)}, Opportunities: {len(report.opportunities)}, "
                     f"Emerging: {len(report.emerging)}, Fading: {len(report.fading)}, "
-                    f"Watch: {len(report.watch)}"
+                    f"Watch: {len(report.watch)}, Track record: {len(report.track_record)} reviews"
                 )
                 print("=" * 60)
             else:
                 self._delivery.send(html_body=html, subject=subject, config=self.config)
+                # Record only after a successful send so an undelivered report is not scored.
+                store.record_reviews(report.track_record, now)
+                store.record_signal_calls(
+                    report,
+                    now.date(),
+                    ticker_for=lambda names: resolve_ticker(names, self.config.user_profile),
+                )
 
             status = "success"
             log.info("signals_report_complete", dry_run=dry_run, forced=force)

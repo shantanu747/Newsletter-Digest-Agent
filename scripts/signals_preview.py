@@ -124,6 +124,31 @@ def _synthesize(store: ObservationStore, count: int) -> None:
     print(f"Synthesized {count} entities across rising/fading/new/steady patterns ({counter} observations).")
 
 
+def _synthesize_signal_calls(store: ObservationStore) -> None:
+    """Insert a few back-dated signal_call rows so the Track Record section can be
+    exercised without waiting a week. Uses tickers outside the profile so no
+    network fetch is attempted; mention stats come from _synthesize output."""
+    from agent.utils.models import SignalItem, SignalsReport
+
+    now = datetime.now(timezone.utc)
+    for days_ago, headline, entities in [
+        (8, "Data center demand still climbing", ("Nvidia",)),
+        (31, "Export controls tighten on semis", ("export controls",)),
+        (2, "Too fresh to review", ("Tesla",)),
+    ]:
+        report_date = (now - timedelta(days=days_ago)).date()
+        report = SignalsReport(
+            generated_at=now,
+            window_days=7,
+            macro=None,
+            opportunities=(
+                SignalItem(headline=headline, body="Synthetic back-dated call.", confidence="HIGH", entities=entities),
+            ),
+        )
+        store.record_signal_calls(report, report_date, ticker_for=lambda names: None)
+    print("Synthesized 3 back-dated signal calls (8d, 31d due; 2d not yet due).")
+
+
 def _print_brief(brief) -> None:
     print(
         f"\nBrief: {len(brief.trends)} entities, {len(brief.new_edges)} new co-occurrences, "
@@ -163,6 +188,7 @@ def main() -> None:
 
     if args.synthesize:
         _synthesize(store, args.synthesize)
+        _synthesize_signal_calls(store)
 
     now = datetime.now(timezone.utc)
     config = SignalsConfig()
@@ -181,9 +207,20 @@ def main() -> None:
     from agent.trends.analyzer import TrendAnalyzer
     from agent.digest.builder import build_signals
 
+    from agent.trends.track_record import build_track_record
+
+    class _NoopFetcher:
+        """Preview fetcher — no network; the section exercises mention stats only."""
+
+        def daily_closes(self, ticker, start, end):
+            return []
+
+    track_record = build_track_record(store, None, _NoopFetcher(), now)
+    print(f"Track record: {len(track_record)} reviews")
+
     print("\nRunning TrendAnalyzer …")
     analyzer = TrendAnalyzer(api_key=api_key, config=config, user_profile=None)
-    report = analyzer.analyze(brief, macro=None)
+    report = analyzer.analyze(brief, macro=None, track_record=track_record)
     print(
         f"Report: risks={len(report.risks)} opportunities={len(report.opportunities)} "
         f"emerging={len(report.emerging)} fading={len(report.fading)} watch={len(report.watch)}"

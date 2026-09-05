@@ -260,6 +260,7 @@ The agent includes an optional **persistent knowledge layer** that records entit
 
 ### Signals Report
 A periodic trend analysis report (default every 3 days) that includes:
+- **Track Record** — past calls scored at 7- and 30-day horizons: price move (profile tickers only, via Stooq daily closes) plus mention/sentiment momentum since the call, with 1–2 sentences of model interpretation per call
 - **Macro dashboard** — key economic indicators from FRED (yield curves, unemployment, credit spreads, etc.)
 - **Accelerating risks / Opportunities** — entities with significant mention trends
 - **Emerging / Fading themes** — new and declining topics
@@ -302,7 +303,10 @@ signals:
   web_search_enabled: false
   web_search_max_uses: 5
   model: "claude-opus-5"
+  track_record_enabled: true  # score past calls at 7/30-day horizons (prices via Stooq, free/unauthenticated)
 ```
+
+Only profile tickers (`config/user_profile.yaml` portfolio + watchlist) get price scoring; other calls get the mention-based retrospective without a price. Prices come from Stooq daily closes (free, unauthenticated, daily). Calls are recorded only after a successful non-dry-run send, reviewed once per horizon, and never reviewed past 90 days old. This is a reading assistant, not investment advice.
 
 The `macro:` section can also be added for the economic dashboard (requires `FRED_API_KEY` in `.env`).
 
@@ -387,6 +391,7 @@ newsletter-digest-agent/
 | `signals.web_search_enabled` | bool | `false` | Enable web search corroboration |
 | `signals.web_search_max_uses` | int | `5` | Max web search calls per report |
 | `signals.model` | str | `"claude-opus-5"` | Model for trend analysis |
+| `signals.track_record_enabled` | bool | `true` | Score past calls at 7/30-day horizons in the Track Record section |
 
 ### Macroeconomic Dashboard
 | Key | Type | Default | Description |
