@@ -51,6 +51,7 @@ class NewsletterAgent:
             summary_percentage=config.summary_percentage,
             summary_min_words=config.summary_min_words,
             summary_max_words=config.summary_max_words,
+            knowledge_config=config.knowledge,
         )
         self._builder = DigestBuilder()
         self._delivery = EmailDelivery()

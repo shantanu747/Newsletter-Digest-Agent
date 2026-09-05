@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
 
 from agent.runner import NewsletterAgent
+from agent.utils.config import KnowledgeConfig
 from agent.utils.models import Email, Summary, DigestEntry
 
 
@@ -173,3 +174,19 @@ class TestMainSchedulerRouting:
 
         mock_scheduler_cls.assert_called_once()
         mock_scheduler_cls.return_value.start.assert_called_once()
+
+
+class TestNewsletterAgentConstruction:
+    """NewsletterAgent.__init__ must wire config through to its collaborators."""
+
+    def test_summarizer_receives_knowledge_config(self, mock_config, mocker):
+        """The summarizer must receive knowledge_config so entity extraction runs (FR gap fix)."""
+        mock_config.knowledge = KnowledgeConfig(enabled=True)
+        mocker.patch("agent.runner.GmailFetcher")
+        mocker.patch("agent.runner.EmailDelivery")
+        mock_summarizer_cls = mocker.patch("agent.runner.ClaudeSummarizer")
+
+        NewsletterAgent(config=mock_config)
+
+        mock_summarizer_cls.assert_called_once()
+        assert mock_summarizer_cls.call_args.kwargs["knowledge_config"] is mock_config.knowledge
