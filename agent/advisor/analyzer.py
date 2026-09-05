@@ -13,10 +13,13 @@ import time
 
 import anthropic
 
+from collections.abc import Mapping
+
+from agent.knowledge.context import recurring_lines
 from agent.utils.anthropic_text import extract_text
 from agent.utils.config import UserProfile
 from agent.utils.logger import get_logger
-from agent.utils.models import AdvisorAnalysis, Summary
+from agent.utils.models import AdvisorAnalysis, EntityContext, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
 _DEFAULT_MODEL = "claude-sonnet-5"
@@ -44,6 +47,9 @@ _SYSTEM_PROMPT = (
     "sells: flag current holdings showing exit signals. Format each signal as:\n"
     "  [BUY/SELL/WATCH] TICKER (Name) — one sentence rationale\n"
     "Omit entirely if there are no clear signals.\n\n"
+    "When a RECURRING THIS WEEK list is provided, weigh persistence: a topic several "
+    "newsletters have returned to across days matters more than a single day's volume. "
+    "Say so explicitly when it changes your read.\n\n"
     "READER PROFILE:\n"
     "INTERESTS: {interests}\n\n"
     "PORTFOLIO (holdings): {portfolio}\n\n"
@@ -98,11 +104,21 @@ class AdvisorAnalyzer:
             custom_block=custom_block,
         )
 
-    def _build_user_message(self, summaries: list[Summary]) -> str:
+    def _build_user_message(
+        self,
+        summaries: list[Summary],
+        entity_context: Mapping[str, EntityContext] | None = None,
+    ) -> str:
         parts = ["Here are today's newsletter summaries:\n"]
         for s in summaries:
             label = s.subject or s.sender
             parts.append(f"--- {label} ---\n{s.summary_text}\n")
+        lines = recurring_lines(entity_context or {})
+        if lines:
+            parts.append(
+                "RECURRING THIS WEEK (from the reader's newsletter history, excluding today):\n"
+                + "\n".join(lines)
+            )
         return "\n".join(parts)
 
     def _parse_response(self, text: str) -> AdvisorAnalysis:
@@ -123,7 +139,11 @@ class AdvisorAnalyzer:
 
         return AdvisorAnalysis(relevance_text=relevance_text, signals_text=signals_text)
 
-    def analyze(self, summaries: list[Summary]) -> AdvisorAnalysis:
+    def analyze(
+        self,
+        summaries: list[Summary],
+        entity_context: Mapping[str, EntityContext] | None = None,
+    ) -> AdvisorAnalysis:
         """Run one Claude call across all summaries and return an AdvisorAnalysis.
 
         Retries up to 3 times on transient API/rate-limit errors. Returns an
@@ -131,6 +151,8 @@ class AdvisorAnalyzer:
 
         Args:
             summaries: All Summary objects from the current digest batch.
+            entity_context: Trailing-window store statistics keyed by norm_key.
+                None (or nothing qualifying) means no RECURRING THIS WEEK block.
 
         Returns:
             AdvisorAnalysis with optional relevance_text and signals_text.
@@ -139,7 +161,7 @@ class AdvisorAnalyzer:
             return AdvisorAnalysis(relevance_text=None, signals_text=None)
 
         system_prompt = self._build_system_prompt()
-        user_message = self._build_user_message(summaries)
+        user_message = self._build_user_message(summaries, entity_context)
 
         last_exc = None
         for attempt in range(3):
@@ -159,6 +181,7 @@ class AdvisorAnalyzer:
                     newsletter_count=len(summaries),
                     has_relevance=analysis.relevance_text is not None,
                     has_signals=analysis.signals_text is not None,
+                    recurring_count=len(recurring_lines(entity_context or {})),
                     attempt=attempt + 1,
                     stop_reason=getattr(response, "stop_reason", None),
                 )

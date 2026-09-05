@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from agent.runner import NewsletterAgent
 from agent.utils.config import KnowledgeConfig, UserProfile
-from agent.utils.models import Email, Summary, Idea, EntityMention
+from agent.utils.models import Email, EntityContext, Summary, Idea, EntityMention
 
 
 class TestDryRun:
@@ -307,3 +307,94 @@ class TestThemeSynthesis:
             api_key=mock_config.anthropic_api_key, model=mock_config.model
         )
         mock_synthesizer_instance.synthesize.assert_called_once()
+
+
+class TestDigestStoreContext:
+    """Tests for recurring-entity context wiring in the runner (plan 03, step 5)."""
+
+    def _setup_digest(self, mock_config, mocker, summary):
+        mock_email = Email(
+            id="msg-1", source="gmail", sender="a@example.com",
+            subject="Test", received_at=datetime(2026, 3, 9, 7, 0, tzinfo=timezone.utc),
+            raw_html="<p>hello</p>", plain_text="hello",
+        )
+        mocker.patch("agent.runner.GmailFetcher.fetch_newsletters", return_value=[mock_email])
+        mocker.patch("agent.runner.EmailParser.parse", return_value=mock_email)
+        mocker.patch("agent.runner.ClaudeSummarizer.summarize", return_value=summary)
+        mocker.patch("agent.runner.DigestBuilder.build", return_value="<html>digest</html>")
+        mocker.patch("agent.runner.EmailDelivery.send")
+
+    def _idea_summary(self):
+        return Summary(
+            email_id="msg-1", sender="a@example.com", subject="Test",
+            summary_text="", word_count=0,
+            generated_at=datetime(2026, 3, 9, 7, 1, tzinfo=timezone.utc),
+            ideas=(Idea(
+                title="Nvidia idea", summary_text="Nvidia news.",
+                entities=(EntityMention(name="Nvidia", entity_type="company", sentiment="positive"),),
+            ),),
+        )
+
+    def test_store_opened_for_reads_in_dry_run_but_record_not_called(self, mock_config, mocker, tmp_path):
+        """Dry-run opens the store for reads but never records observations."""
+        mock_config.knowledge = KnowledgeConfig(enabled=True, db_path=str(tmp_path / "signals.db"))
+        self._setup_digest(mock_config, mocker, self._idea_summary())
+        mock_store_cls = mocker.patch("agent.knowledge.store.ObservationStore")
+        mock_store_cls.return_value.recent_context.return_value = {}
+        mock_advisor_cls = mocker.patch("agent.advisor.analyzer.AdvisorAnalyzer")
+
+        agent = NewsletterAgent(config=mock_config, dry_run=True)
+        agent.run()
+
+        mock_store_cls.assert_called_once_with(str(tmp_path / "signals.db"))
+        mock_store_cls.return_value.record_summary.assert_not_called()
+        mock_store_cls.return_value.recent_context.assert_called_once()
+        mock_advisor_cls.assert_not_called()  # no user profile configured
+
+    def test_advisor_receives_entity_context(self, mock_config, mocker, tmp_path):
+        """The advisor call receives the entity_context from the single store query."""
+        mock_config.knowledge = KnowledgeConfig(enabled=True, db_path=str(tmp_path / "signals.db"))
+        mock_config.user_profile = UserProfile()
+        self._setup_digest(mock_config, mocker, self._idea_summary())
+        mocker.patch("agent.runner.DigestBuilder.build", return_value="<html>digest</html>")
+        mock_store_cls = mocker.patch("agent.knowledge.store.ObservationStore")
+        context = {"nvidia": EntityContext(
+            name="Nvidia", mentions=5, distinct_senders=3, days_active=4, net_sentiment=0.6,
+        )}
+        mock_store_cls.return_value.recent_context.return_value = context
+        mock_advisor_cls = mocker.patch("agent.advisor.analyzer.AdvisorAnalyzer")
+
+        agent = NewsletterAgent(config=mock_config, dry_run=True)
+        agent.run()
+
+        mock_store_cls.return_value.recent_context.assert_called_once()
+        mock_advisor_cls.return_value.analyze.assert_called_once()
+        assert mock_advisor_cls.return_value.analyze.call_args.kwargs["entity_context"] == context
+
+    def test_context_window_excludes_run_date(self, mock_config, mocker, tmp_path):
+        """The store query window ends at the start of the run date (today excluded)."""
+        mock_config.knowledge = KnowledgeConfig(enabled=True, db_path=str(tmp_path / "signals.db"))
+        self._setup_digest(mock_config, mocker, self._idea_summary())
+        mock_store_cls = mocker.patch("agent.knowledge.store.ObservationStore")
+        mock_store_cls.return_value.recent_context.return_value = {}
+
+        agent = NewsletterAgent(config=mock_config, dry_run=True)
+        run_date = datetime(2026, 9, 5, 15, 30, tzinfo=timezone.utc)
+        agent._run_digest(run_date)
+
+        _, since, until = mock_store_cls.return_value.recent_context.call_args[0]
+        assert since == datetime(2026, 8, 29, 0, 0, tzinfo=timezone.utc)
+        assert until == datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc)
+
+    def test_no_store_query_when_knowledge_disabled(self, mock_config, mocker):
+        """knowledge=None -> no store opened, advisor gets empty context."""
+        mock_config.user_profile = UserProfile()
+        self._setup_digest(mock_config, mocker, self._idea_summary())
+        mock_store_cls = mocker.patch("agent.knowledge.store.ObservationStore")
+        mock_advisor_cls = mocker.patch("agent.advisor.analyzer.AdvisorAnalyzer")
+
+        agent = NewsletterAgent(config=mock_config, dry_run=True)
+        agent.run()
+
+        mock_store_cls.assert_not_called()
+        assert mock_advisor_cls.return_value.analyze.call_args.kwargs["entity_context"] == {}

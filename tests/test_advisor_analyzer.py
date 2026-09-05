@@ -21,7 +21,7 @@ import pytest
 
 from agent.advisor.analyzer import AdvisorAnalyzer, _RELEVANCE_DELIMITER, _SIGNALS_DELIMITER
 from agent.utils.config import UserProfile
-from agent.utils.models import AdvisorAnalysis, Summary
+from agent.utils.models import AdvisorAnalysis, EntityContext, Summary
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +208,78 @@ class TestAnalyze:
         user_message = mock_client.messages.create.call_args[1]["messages"][0]["content"]
         assert "Bloomberg Markets" in user_message
         assert "Unusual Whales" in user_message
+
+    def test_system_prompt_weighs_persistence(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_response("No implications.")
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+
+        analyzer = _make_analyzer()
+        analyzer.analyze([_make_summary("test", "test")])
+
+        system_prompt = mock_client.messages.create.call_args[1]["system"]
+        assert "weigh persistence" in system_prompt
+
+
+# ---------------------------------------------------------------------------
+# Recurring-entity context block
+# ---------------------------------------------------------------------------
+
+def _make_context(**overrides) -> dict[str, EntityContext]:
+    params = {"name": "Nvidia", "mentions": 5, "distinct_senders": 3, "days_active": 4, "net_sentiment": 0.6}
+    params.update(overrides)
+    return {"nvidia": EntityContext(**params)}
+
+
+class TestRecurringContextBlock:
+
+    def test_user_message_has_no_recurring_block_when_context_none(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_response("No implications.")
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+
+        analyzer = _make_analyzer()
+        analyzer.analyze([_make_summary("test", "test")], entity_context=None)
+
+        user_message = mock_client.messages.create.call_args[1]["messages"][0]["content"]
+        assert "RECURRING THIS WEEK" not in user_message
+
+    def test_user_message_has_no_recurring_block_when_nothing_qualifies(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_response("No implications.")
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+
+        analyzer = _make_analyzer()
+        analyzer.analyze(
+            [_make_summary("test", "test")],
+            entity_context=_make_context(mentions=1, distinct_senders=1),
+        )
+
+        user_message = mock_client.messages.create.call_args[1]["messages"][0]["content"]
+        assert "RECURRING THIS WEEK" not in user_message
+
+    def test_user_message_lists_recurring_entities_strongest_first(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_response("No implications.")
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+
+        context = {
+            "nvidia": EntityContext(name="Nvidia", mentions=5, distinct_senders=3, days_active=4, net_sentiment=0.6),
+            "oil": EntityContext(name="Oil", mentions=8, distinct_senders=2, days_active=2, net_sentiment=-0.2),
+        }
+        analyzer = _make_analyzer()
+        analyzer.analyze([_make_summary("test", "test")], entity_context=context)
+
+        user_message = mock_client.messages.create.call_args[1]["messages"][0]["content"]
+        assert "RECURRING THIS WEEK" in user_message
+        assert "excluding today" in user_message
+        oil_pos = user_message.index("Oil: 8 mentions")
+        nvidia_pos = user_message.index("Nvidia: 5 mentions")
+        assert oil_pos < nvidia_pos
 
     def test_retries_on_rate_limit_error(self, mocker):
         mock_client = MagicMock()

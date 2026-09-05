@@ -271,6 +271,12 @@ When enabled, the daily digest includes a **"Today's Themes"** block near the to
 - Disagreements between sources are explicitly called out
 - Merged ideas are hidden from their original newsletter sections (but every newsletter still appears in the digest)
 
+### Memory in the daily digest
+Whenever the knowledge layer is enabled, the daily digest also gains a memory of the past week:
+- **Advisor context** — the advisor prompt includes a `RECURRING THIS WEEK` list so relevance and signals reflect persistence, not just today's volume.
+- **Recurring badge** — an idea whose entity was mentioned **≥ 3 times by ≥ 2 newsletters over the trailing 7 days** (today excluded) carries a quiet line under its title, e.g. *Recurring · Nvidia · 5 mentions from 3 newsletters this week*.
+- The badge prioritizes; it never hides content. At most one badge renders per idea (the strongest qualifying entity).
+
 ### Enabling the Knowledge Layer
 Uncomment and configure the `knowledge_graph:` section in `config/newsletters.yaml`:
 

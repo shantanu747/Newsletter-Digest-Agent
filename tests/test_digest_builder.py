@@ -12,7 +12,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.utils.models import AdvisorAnalysis, DigestBatch, DigestEntry, Idea, EntityMention, Summary, Theme
+from agent.utils.models import (
+    AdvisorAnalysis, DigestBatch, DigestEntry, EntityContext, Idea, EntityMention, Summary, Theme,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -647,3 +649,146 @@ class TestDigestBuilderThemes:
         # TOC should still have the entry
         assert "Bloomberg" in html
         assert "Bloomberg" in html  # subject in TOC
+
+
+# ---------------------------------------------------------------------------
+# Recurring-badge Tests (plan 03, step 6)
+# ---------------------------------------------------------------------------
+
+def _make_context_batch(entries: list[DigestEntry], context: dict) -> DigestBatch:
+    return DigestBatch(
+        batch_index=0,
+        entries=entries,
+        gmail_message_ids=[],
+        total_batches=1,
+        entity_context=context,
+    )
+
+
+class TestDigestBuilderBadges:
+    """Recurring badge renders under the qualifying idea title."""
+
+    @pytest.fixture
+    def run_date(self) -> datetime:
+        return datetime(2026, 3, 9, 6, 30, 0, tzinfo=timezone.utc)
+
+    @pytest.fixture
+    def badge_entries(self) -> list[DigestEntry]:
+        e1 = EntityMention(name="Nvidia", entity_type="company", sentiment="positive")
+        e2 = EntityMention(name="Oil", entity_type="asset", sentiment="neutral")
+        return [
+            _make_entry_with_ideas("msg-1", "a@x.com", "Bloomberg", [
+                _make_idea("Nvidia hit", "Nvidia faces new curbs", [e1]),
+                _make_idea("Oil steady", "Oil prices hold", [e2]),
+            ], display_name="Bloomberg"),
+        ]
+
+    @pytest.fixture
+    def badge_context(self) -> dict[str, EntityContext]:
+        return {
+            "nvidia": EntityContext(
+                name="Nvidia", mentions=5, distinct_senders=3, days_active=4, net_sentiment=0.6,
+            ),
+        }
+
+    def test_no_context_renders_identical_html_to_previous_plan(self, run_date, badge_entries):
+        """Batch without entity_context renders the same as batch with empty context."""
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+
+        batch_default = DigestBatch(
+            batch_index=0, entries=badge_entries, gmail_message_ids=[], total_batches=1,
+        )
+        batch_empty = _make_context_batch(badge_entries, {})
+
+        html_default = builder.build(batch=batch_default, run_date=run_date, total_summarized=1)
+        html_empty = builder.build(batch=batch_empty, run_date=run_date, total_summarized=1)
+
+        assert html_default == html_empty
+        assert "Recurring ·" not in html_empty
+
+    def test_badge_rendered_under_qualifying_idea(self, run_date, badge_entries, badge_context):
+        """The qualifying idea carries the badge line; the other idea does not."""
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+
+        html = builder.build(
+            batch=_make_context_batch(badge_entries, badge_context),
+            run_date=run_date,
+            total_summarized=1,
+        )
+
+        badge = "Recurring · Nvidia · 5 mentions from 3 newsletters this week"
+        assert html.count(badge) == 1
+        title_pos = html.index("Nvidia hit")
+        badge_pos = html.index(badge)
+        body_pos = html.index("Nvidia faces new curbs")
+        assert title_pos < badge_pos < body_pos
+
+    def test_only_one_badge_per_idea_even_with_two_recurring_entities(
+        self, run_date, badge_context,
+    ):
+        """An idea naming two recurring entities still renders exactly one badge."""
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+
+        e1 = EntityMention(name="Nvidia", entity_type="company", sentiment="positive")
+        e2 = EntityMention(name="Oil", entity_type="asset", sentiment="neutral")
+        entries = [
+            _make_entry_with_ideas("msg-1", "a@x.com", "Bloomberg", [
+                _make_idea("Both", "Nvidia and Oil move", [e1, e2]),
+            ], display_name="Bloomberg"),
+        ]
+        context = {
+            "nvidia": EntityContext(
+                name="Nvidia", mentions=5, distinct_senders=3, days_active=4, net_sentiment=0.6,
+            ),
+            "oil": EntityContext(
+                name="Oil", mentions=8, distinct_senders=2, days_active=2, net_sentiment=-0.2,
+            ),
+        }
+        html = builder.build(
+            batch=_make_context_batch(entries, context), run_date=run_date, total_summarized=1,
+        )
+
+        assert html.count("Recurring ·") == 1
+        assert "Recurring · Oil · 8 mentions from 2 newsletters this week" in html
+
+    def test_no_badge_below_threshold(self, run_date, badge_entries):
+        """Context entries below the recurring threshold render no badge."""
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+
+        context = {
+            "nvidia": EntityContext(
+                name="Nvidia", mentions=2, distinct_senders=1, days_active=1, net_sentiment=0.0,
+            ),
+        }
+        html = builder.build(
+            batch=_make_context_batch(badge_entries, context), run_date=run_date, total_summarized=1,
+        )
+
+        assert "Recurring ·" not in html
+
+    def test_absorbed_idea_gets_no_badge(self, run_date, badge_entries, badge_context):
+        """An absorbed idea renders no badge even when its entity qualifies."""
+        from agent.digest.builder import DigestBuilder
+        builder = DigestBuilder()
+
+        theme = _make_theme(
+            title="Nvidia export controls",
+            body="Covered.",
+            sources=["Bloomberg"],
+            absorbed_keys=[("msg-1", 0)],
+        )
+        batch = DigestBatch(
+            batch_index=0,
+            entries=badge_entries,
+            gmail_message_ids=[],
+            total_batches=1,
+            themes=(theme,),
+            entity_context=badge_context,
+        )
+        html = builder.build(batch=batch, run_date=run_date, total_summarized=1)
+
+        assert "Recurring ·" not in html

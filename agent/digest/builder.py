@@ -8,6 +8,7 @@ from pathlib import Path
 
 import jinja2
 
+from agent.knowledge.context import badge_for_idea
 from agent.utils.logger import get_logger
 from agent.utils.models import DigestBatch, Idea, SignalsReport
 
@@ -106,6 +107,18 @@ class DigestBuilder:
 
         absorbed, visible_ideas, absorbed_titles_by_email = _compute_theme_data(batch)
 
+        badges: dict[tuple[str, int], str] = {}
+        for entry in batch.entries:
+            email_id = entry.summary.email_id
+            if entry.summary.ideas is None:
+                continue
+            for idx, idea in enumerate(entry.summary.ideas):
+                if (email_id, idx) in absorbed:
+                    continue
+                badge = badge_for_idea(idea, batch.entity_context)
+                if badge is not None:
+                    badges[(email_id, idx)] = badge
+
         env = _make_env()
         template = env.get_template("digest.html.j2")
 
@@ -128,6 +141,7 @@ class DigestBuilder:
             absorbed=absorbed,
             visible_ideas=visible_ideas,
             absorbed_titles_by_email=absorbed_titles_by_email,
+            badges=badges,
         )
 
 

@@ -142,6 +142,7 @@
         <!-- ====================================================== -->
         {% set visible_ideas = visible_ideas | default({}) %}
         {% set absorbed_titles_by_email = absorbed_titles_by_email | default({}) %}
+        {% set badges = badges | default({}) %}
         {% if batch is defined and batch.themes %}
         <tr>
           <td style="padding: 0 40px 8px;">
@@ -255,6 +256,10 @@
                           {% for idx, idea in entry_visible_ideas %}
                           <div style="margin-bottom: 18px;">
                             <p class="idea-title" style="font-size: 14px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.1px; margin: 0 0 6px;">{{ idea.title }}</p>
+                            {% set badge = badges.get((entry.summary.email_id, idx)) %}
+                            {% if badge %}
+                            <p style="margin: 0 0 6px; font-size: 11px; font-weight: 600; color: #7c9a6a; letter-spacing: 0.02em;">{{ badge }}</p>
+                            {% endif %}
                             <p class="idea-body" style="font-size: 15px; font-weight: 400; color: #3a3a3c; line-height: 1.7; margin: 0;">{{ idea.summary_text | nl2br }}</p>
                           </div>
                           {% if not loop.last %}
