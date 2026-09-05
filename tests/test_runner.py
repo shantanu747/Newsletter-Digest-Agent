@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
 
 from agent.runner import NewsletterAgent
+from agent.utils.config import KnowledgeConfig, UserProfile
 from agent.utils.models import Email, Summary, DigestEntry
 
 
@@ -173,3 +174,59 @@ class TestMainSchedulerRouting:
 
         mock_scheduler_cls.assert_called_once()
         mock_scheduler_cls.return_value.start.assert_called_once()
+
+
+class TestNewsletterAgentConstruction:
+    """NewsletterAgent.__init__ must wire config through to its collaborators."""
+
+    def test_summarizer_receives_knowledge_config(self, mock_config, mocker):
+        """The summarizer must receive knowledge_config so entity extraction runs (FR gap fix)."""
+        mock_config.knowledge = KnowledgeConfig(enabled=True)
+        mocker.patch("agent.runner.GmailFetcher")
+        mocker.patch("agent.runner.EmailDelivery")
+        mock_summarizer_cls = mocker.patch("agent.runner.ClaudeSummarizer")
+
+        NewsletterAgent(config=mock_config)
+
+        mock_summarizer_cls.assert_called_once()
+        assert mock_summarizer_cls.call_args.kwargs["knowledge_config"] is mock_config.knowledge
+
+    def test_summarizer_receives_configured_model(self, mock_config, mocker):
+        """The summarizer must receive the configured model, not a hard-coded default."""
+        mock_config.model = "claude-test-x"
+        mocker.patch("agent.runner.GmailFetcher")
+        mocker.patch("agent.runner.EmailDelivery")
+        mock_summarizer_cls = mocker.patch("agent.runner.ClaudeSummarizer")
+
+        NewsletterAgent(config=mock_config)
+
+        mock_summarizer_cls.assert_called_once()
+        assert mock_summarizer_cls.call_args.kwargs["model"] == "claude-test-x"
+
+    def test_advisor_receives_configured_model(self, mock_config, mocker):
+        """The advisor must receive the configured model when constructed inside _run_digest."""
+        mock_config.model = "claude-test-x"
+        mock_config.user_profile = UserProfile()
+
+        mock_email = Email(
+            id="msg-1", source="gmail", sender="a@example.com",
+            subject="Test", received_at=datetime(2026, 3, 9, 7, 0, tzinfo=timezone.utc),
+            raw_html="<p>hello</p>", plain_text="hello",
+        )
+        mocker.patch("agent.runner.GmailFetcher.fetch_newsletters", return_value=[mock_email])
+        mocker.patch("agent.runner.EmailParser.parse", return_value=mock_email)
+        mock_summary = Summary(
+            email_id="msg-1", sender="a@example.com", subject="Test",
+            summary_text="word " * 225, word_count=225,
+            generated_at=datetime(2026, 3, 9, 7, 1, tzinfo=timezone.utc),
+        )
+        mocker.patch("agent.runner.ClaudeSummarizer.summarize", return_value=mock_summary)
+        mocker.patch("agent.runner.DigestBuilder.build", return_value="<html>digest</html>")
+        mocker.patch("agent.runner.EmailDelivery.send")
+        mock_advisor_cls = mocker.patch("agent.advisor.analyzer.AdvisorAnalyzer")
+
+        agent = NewsletterAgent(config=mock_config, dry_run=True)
+        agent.run()
+
+        mock_advisor_cls.assert_called_once()
+        assert mock_advisor_cls.call_args.kwargs["model"] == "claude-test-x"

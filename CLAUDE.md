@@ -29,6 +29,7 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.11+: Follow standard conventions
 
 ## Recent Changes
+- 001-model-upgrade-sonnet-5: Upgraded per-newsletter summarization and the daily advisor section to `claude-sonnet-5` (configurable via the new top-level `model` config key; `signals.model` stays separate), fixed `ClaudeSummarizer` to receive `knowledge_config` from the runner so entity extraction actually runs, added a shared `agent/utils/anthropic_text.py::extract_text` helper so responses are read safely when thinking/tool blocks precede the text block, and added rate limiting to `AdvisorAnalyzer`. No new dependencies.
 - 001-signals-knowledge-graph: Added Python 3.11+ + `anthropic` SDK (raise `requirements.txt` from `>=0.40.0` to `>=0.60.0` for the `web_search` server tool), `Jinja2`, `PyYAML`, `structlog`, `pytest` + `pytest-mock`. **No new third-party dependencies.**
 - 001-recall-integration: Prompt-only change to `agent/summarizer/claude_summarizer.py` — removes interest-based suppression gate from idea-based digest format; no new dependencies or storage
 - 001-idea-digest-format: Added Python 3.11+ + `anthropic` SDK, `Jinja2`, `PyYAML`, `structlog`, `pytest` + `pytest-mock`

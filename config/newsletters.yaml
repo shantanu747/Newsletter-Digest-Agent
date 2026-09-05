@@ -19,6 +19,10 @@ summary_word_target: 225
 # into discrete ideas filtered for relevance. Switch to compare before/after.
 digest_format: "idea_based"  # "classic" | "idea_based"
 
+# Claude model for per-newsletter summaries and the daily advisor section.
+# The periodic Signals Report uses `signals.model` instead.
+model: "claude-sonnet-5"
+
 # Summary length mode: "fixed" uses summary_word_target; "percentage" scales by source length
 summary_length_mode: "percentage"  # "fixed" | "percentage"
 summary_percentage: 18             # % of source word count (used when mode=percentage)

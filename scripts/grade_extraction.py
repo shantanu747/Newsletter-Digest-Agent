@@ -25,6 +25,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from agent.parsers.email_parser import EmailParser
+from agent.utils.anthropic_text import extract_text
 from agent.utils.eml_loader import load_eml
 
 load_dotenv()
@@ -118,11 +119,12 @@ def main() -> None:
         )
 
         response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
+            model="claude-sonnet-5",
+            max_tokens=2048,
+            output_config={"effort": "low"},
             messages=[{"role": "user", "content": prompt}],
         )
-        grade_text = response.content[0].text.strip()
+        grade_text = extract_text(response)
 
         report_lines += [
             f"## {eml_path.stem}\n",

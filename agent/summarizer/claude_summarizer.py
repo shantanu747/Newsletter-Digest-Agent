@@ -11,10 +11,16 @@ from datetime import datetime, timezone
 
 import anthropic
 
+from agent.utils.anthropic_text import extract_text
 from agent.utils.exceptions import SummarizationError
 from agent.utils.logger import get_logger
 from agent.utils.models import Email, EntityMention, Idea, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
+
+_DEFAULT_MODEL = "claude-sonnet-5"
+_SUMMARY_MAX_TOKENS = 2048       # was 1024; adaptive thinking shares this budget
+_IDEAS_MAX_TOKENS = 4096         # was 2048
+_OUTPUT_CONFIG = {"effort": "low"}  # extraction work — keep thinking short
 
 _SYSTEM_PROMPT_TEMPLATE = (
     "You are a newsletter summarizer. Given a newsletter's text content, produce a "
@@ -156,12 +162,13 @@ def _parse_ideas(raw: str) -> tuple[Idea, ...]:
 
 
 class ClaudeSummarizer:
-    """Summarizes newsletter emails using the Claude claude-sonnet-4-6 model."""
+    """Summarizes newsletter emails with the configured Claude model (default claude-sonnet-5)."""
 
     def __init__(
         self,
         api_key: str,
         *,
+        model: str = _DEFAULT_MODEL,
         summary_length_mode: str = "fixed",
         summary_word_target: int = 225,
         summary_percentage: int = 18,
@@ -172,6 +179,7 @@ class ClaudeSummarizer:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._log = get_logger(__name__)
         self._limiter = TokenBucketLimiter(rate=0.5, capacity=1)
+        self._model = model
         self._mode = summary_length_mode
         self._word_target = summary_word_target
         self._percentage = summary_percentage
@@ -236,19 +244,24 @@ class ClaudeSummarizer:
             try:
                 self._limiter.acquire()
                 response = self._client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=1024,
+                    model=self._model,
+                    max_tokens=_SUMMARY_MAX_TOKENS,
+                    output_config=_OUTPUT_CONFIG,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_content}],
                 )
-                text = response.content[0].text.strip().replace("**", "")
+                stop_reason = getattr(response, "stop_reason", None)
+                text = extract_text(response).replace("**", "")
                 word_count = len(text.split())
                 self._log.info(
                     "newsletter_summarized",
                     message_id=email.id,
                     word_count=word_count,
                     attempt=attempt + 1,
+                    stop_reason=stop_reason,
                 )
+                if stop_reason == "max_tokens":
+                    self._log.warning("summary_truncated", message_id=email.id)
                 return Summary(
                     email_id=email.id,
                     sender=email.sender,
@@ -315,12 +328,14 @@ class ClaudeSummarizer:
             try:
                 self._limiter.acquire()
                 response = self._client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=2048,
+                    model=self._model,
+                    max_tokens=_IDEAS_MAX_TOKENS,
+                    output_config=_OUTPUT_CONFIG,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_content}],
                 )
-                raw = response.content[0].text.strip()
+                stop_reason = getattr(response, "stop_reason", None)
+                raw = extract_text(response)
                 ideas = _parse_ideas(raw)
                 self._log.info(
                     "newsletter_ideas_extracted",
@@ -328,8 +343,12 @@ class ClaudeSummarizer:
                     sender=email.sender,
                     digest_format="idea_based",
                     idea_count=len(ideas),
+                    entity_count=sum(len(i.entities) for i in ideas),
                     attempt=attempt + 1,
+                    stop_reason=stop_reason,
                 )
+                if stop_reason == "max_tokens":
+                    self._log.warning("summary_truncated", message_id=email.id)
                 return Summary(
                     email_id=email.id,
                     sender=email.sender,
