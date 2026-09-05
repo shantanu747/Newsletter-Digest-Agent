@@ -12,17 +12,19 @@ from __future__ import annotations
 import functools
 import os
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 
 from agent.knowledge.canonicalize import normalize_key
 from agent.utils.logger import get_logger
-from agent.utils.models import CooccurrenceEdge, EntityMention, EntityTrend, Summary
+from agent.utils.models import CooccurrenceEdge, EntityContext, EntityMention, EntityTrend, Summary
 
 log = get_logger(__name__)
 
 _SCHEMA_VERSION = "1"
+
+_RECENT_CONTEXT_CHUNK_SIZE = 400
 
 _SCHEMA_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS entity (
@@ -277,6 +279,72 @@ class ObservationStore:
                     )
                 )
         return trends
+
+    @_guarded(default={})
+    def recent_context(
+        self, norm_keys: Sequence[str], since: datetime, until: datetime
+    ) -> dict[str, EntityContext]:
+        """Window statistics for the given normalized entity keys.
+
+        Resolves each key through ``entity.norm_key`` and ``entity_alias`` (same path as
+        ``_resolve_entity``). Keys with no observations in [since, until) are absent from the result.
+        Dates compare on ``observed_date`` (ISO ``YYYY-MM-DD``), so pass date-aligned boundaries.
+        """
+        keys = list(dict.fromkeys(norm_keys))
+        if not keys:
+            return {}
+        since_s, until_s = since.date().isoformat(), until.date().isoformat()
+        result: dict[str, EntityContext] = {}
+        with self._connect() as conn:
+            for i in range(0, len(keys), _RECENT_CONTEXT_CHUNK_SIZE):
+                chunk = keys[i : i + _RECENT_CONTEXT_CHUNK_SIZE]
+                # Resolve each requested key to an entity id first, so the result
+                # is keyed by the key the caller asked for (alias keys included).
+                placeholders = ", ".join("?" for _ in chunk)
+                folded = [normalize_key(k) for k in chunk]
+                entity_rows = conn.execute(
+                    f"SELECT norm_key, id FROM entity WHERE norm_key IN ({placeholders})",
+                    folded,
+                ).fetchall()
+                alias_rows = conn.execute(
+                    f"SELECT alias_key, entity_id FROM entity_alias WHERE alias_key IN ({placeholders})",
+                    folded,
+                ).fetchall()
+                norm_to_id = {norm_key: entity_id for norm_key, entity_id in entity_rows}
+                alias_to_id = {alias_key: entity_id for alias_key, entity_id in alias_rows}
+                entity_to_requested: dict[int, list[str]] = {}
+                for requested, nk in zip(chunk, folded):
+                    entity_id = norm_to_id.get(nk, alias_to_id.get(nk))
+                    if entity_id is not None:
+                        entity_to_requested.setdefault(entity_id, []).append(requested)
+                if not entity_to_requested:
+                    continue
+                ids = sorted(entity_to_requested)
+                id_placeholders = ", ".join("?" for _ in ids)
+                rows = conn.execute(
+                    "SELECT o.entity_id, e.canonical_name, "
+                    "COUNT(*) AS mentions, "
+                    "COUNT(DISTINCT o.sender) AS distinct_senders, "
+                    "COUNT(DISTINCT o.observed_date) AS days_active, "
+                    "SUM(CASE o.sentiment WHEN 'positive' THEN 1 WHEN 'negative' THEN -1 ELSE 0 END) AS net "
+                    "FROM observation o "
+                    "JOIN entity e ON e.id = o.entity_id "
+                    f"WHERE o.entity_id IN ({id_placeholders}) "
+                    "AND o.observed_date >= ? AND o.observed_date < ? "
+                    "GROUP BY o.entity_id",
+                    (*ids, since_s, until_s),
+                ).fetchall()
+                for entity_id, name, mentions, distinct_senders, days_active, net in rows:
+                    ctx = EntityContext(
+                        name=name,
+                        mentions=mentions,
+                        distinct_senders=distinct_senders,
+                        days_active=days_active,
+                        net_sentiment=(net or 0) / mentions if mentions else 0.0,
+                    )
+                    for requested in entity_to_requested[entity_id]:
+                        result[requested] = ctx
+        return result
 
     @_guarded(default=list)
     def new_edges(self, start: datetime, end: datetime) -> list[CooccurrenceEdge]:

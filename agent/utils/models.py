@@ -191,6 +191,26 @@ class Theme:
 
 
 @dataclass(frozen=True)
+class EntityContext:
+    """What the store remembers about one entity over the trailing digest window."""
+
+    name: str
+    """Canonical display name from the store."""
+
+    mentions: int
+    """Observation rows in the window."""
+
+    distinct_senders: int
+    """Distinct senders mentioning this entity in the window."""
+
+    days_active: int
+    """Distinct observed_date values in the window."""
+
+    net_sentiment: float
+    """(positive - negative) / mentions, in [-1, 1]."""
+
+
+@dataclass(frozen=True)
 class DigestBatch:
     """A group of up to batch_size emails assembled into one digest email."""
 
@@ -211,6 +231,9 @@ class DigestBatch:
 
     themes: tuple[Theme, ...] = field(default_factory=tuple)
     """Cross-newsletter synthesized themes (P3). Empty when synthesis disabled."""
+
+    entity_context: dict[str, EntityContext] = field(default_factory=dict)
+    """Window statistics keyed by norm_key. Empty when the knowledge store is disabled."""
 
 
 @dataclass(frozen=True)
