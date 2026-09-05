@@ -159,6 +159,7 @@ def build_signals(report: SignalsReport, run_date: datetime) -> str:
         fading_count=len(report.fading),
         watch_count=len(report.watch),
         divergence_count=len(report.divergences),
+        track_record_count=len(report.track_record),
         is_cold_start=report.is_cold_start,
     )
 

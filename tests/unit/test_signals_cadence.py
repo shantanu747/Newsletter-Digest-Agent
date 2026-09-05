@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from agent.runner import NewsletterAgent
 from agent.utils.config import KnowledgeConfig, SignalsConfig
+from agent.utils.models import SignalItem, SignalsReport
 
 
 _NOW = datetime(2026, 9, 3, tzinfo=timezone.utc)
@@ -145,3 +146,78 @@ class TestRunIntegration:
         mocker.patch("agent.knowledge.store.ObservationStore.mark_job_run")
 
         agent.run()  # must not raise
+
+
+def _make_report(**overrides) -> SignalsReport:
+    defaults = dict(
+        generated_at=_NOW,
+        window_days=7,
+        macro=None,
+        risks=(SignalItem(headline="Risk", body="Body.", confidence="HIGH", entities=("Nvidia",)),),
+    )
+    defaults.update(overrides)
+    return SignalsReport(**defaults)
+
+
+class TestTrackRecordWiring:
+    def _setup(self, mocker, mock_config, tmp_path, **overrides):
+        agent = _make_agent(mock_config, tmp_path, signals=SignalsConfig(**overrides))
+        mocker.patch("agent.knowledge.store.ObservationStore.job_due", return_value=True)
+        mocker.patch("agent.trends.metrics.compute_brief")
+        mocker.patch("agent.prices.stooq.StooqPriceFetcher")
+        mock_build = mocker.patch(
+            "agent.trends.track_record.build_track_record", return_value=()
+        )
+        mock_analyzer_cls = mocker.patch("agent.trends.analyzer.TrendAnalyzer")
+        mock_analyzer_cls.return_value.analyze.return_value = _make_report()
+        mocker.patch("agent.digest.builder.build_signals", return_value="<html></html>")
+        mocker.patch("agent.digest.delivery.EmailDelivery.send")
+        return agent, mock_build
+
+    def test_record_calls_and_reviews_on_real_run(self, mocker, mock_config, tmp_path):
+        agent, mock_build = self._setup(mocker, mock_config, tmp_path)
+        mock_record_calls = mocker.patch("agent.knowledge.store.ObservationStore.record_signal_calls")
+        mock_record_reviews = mocker.patch("agent.knowledge.store.ObservationStore.record_reviews")
+
+        agent.maybe_run_signals(_NOW)
+
+        mock_build.assert_called_once()
+        mock_record_calls.assert_called_once()
+        mock_record_reviews.assert_called_once()
+
+    def test_dry_run_computes_but_records_nothing(self, mocker, mock_config, tmp_path):
+        agent, mock_build = self._setup(mocker, mock_config, tmp_path)
+        mock_record_calls = mocker.patch("agent.knowledge.store.ObservationStore.record_signal_calls")
+        mock_record_reviews = mocker.patch("agent.knowledge.store.ObservationStore.record_reviews")
+        mock_send = mocker.patch("agent.digest.delivery.EmailDelivery.send")
+
+        agent.maybe_run_signals(_NOW, dry_run=True)
+
+        mock_build.assert_called_once()
+        mock_send.assert_not_called()
+        mock_record_calls.assert_not_called()
+        mock_record_reviews.assert_not_called()
+
+    def test_nothing_recorded_when_send_raises(self, mocker, mock_config, tmp_path):
+        agent, mock_build = self._setup(mocker, mock_config, tmp_path)
+        from agent.utils.exceptions import DeliveryError
+
+        mocker.patch("agent.digest.delivery.EmailDelivery.send", side_effect=DeliveryError("boom"))
+        mock_record_calls = mocker.patch("agent.knowledge.store.ObservationStore.record_signal_calls")
+        mock_record_reviews = mocker.patch("agent.knowledge.store.ObservationStore.record_reviews")
+
+        agent.maybe_run_signals(_NOW)  # must not raise
+
+        mock_record_calls.assert_not_called()
+        mock_record_reviews.assert_not_called()
+
+    def test_flag_off_skips_build_track_record(self, mocker, mock_config, tmp_path):
+        agent, mock_build = self._setup(
+            mocker, mock_config, tmp_path, track_record_enabled=False
+        )
+        mocker.patch("agent.knowledge.store.ObservationStore.record_signal_calls")
+        mocker.patch("agent.knowledge.store.ObservationStore.record_reviews")
+
+        agent.maybe_run_signals(_NOW)
+
+        mock_build.assert_not_called()

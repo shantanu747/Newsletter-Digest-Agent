@@ -118,6 +118,28 @@
         </tr>
         {% endif %}
 
+        {% if report.track_record %}
+        <tr>
+          <td class="section" style="padding: 32px 40px 8px;">
+            <p style="margin: 0 0 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #86868b;">Track Record</p>
+            {% for review in report.track_record %}
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #fefefe; border-radius: 14px; margin-bottom: 14px;">
+              <tr><td style="padding: 18px 20px;">
+                <p style="margin: 0 0 4px; font-size: 12px; color: #a1a1a6;">{{ review.horizon_days }}-day review &middot; called {{ review.made_on.strftime('%b %-d') }} &middot; {{ review.section | capitalize }}</p>
+                <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #1d1d1f;">{{ review.headline }}</p>
+                <p style="margin: 0 0 8px; font-size: 13px; color: #3a3a3c;">
+                  {% if review.price_change_pct is not none %}<strong style="color: {{ '#7c9a6a' if review.price_change_pct >= 0 else '#a13a3a' }};">{{ review.ticker }} {{ '%+.1f' % review.price_change_pct }}%</strong> &middot; {% endif %}
+                  {{ review.mentions_since }} mention{{ 's' if review.mentions_since != 1 }} from {{ review.sources_since }} newsletter{{ 's' if review.sources_since != 1 }} since
+                </p>
+                {% if review.commentary %}<p style="margin: 0; font-size: 14px; color: #3a3a3c; line-height: 1.7;">{{ review.commentary | nl2br }}</p>{% endif %}
+                <div style="margin-top: 10px;">{{ confidence_badge(review.confidence) }}</div>
+              </td></tr>
+            </table>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+
         {% if report.macro %}
         <tr>
           <td class="section" style="padding: 32px 40px 8px;">
