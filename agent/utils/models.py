@@ -5,7 +5,7 @@ No raw dicts or untyped tuples cross module boundaries.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 
@@ -390,6 +390,79 @@ class SignalItem:
 
 
 @dataclass(frozen=True)
+class SignalCallRow:
+    """One persisted Signals Report call — a row in the `signal_call` table."""
+
+    id: int
+    """Primary key, assigned by SQLite."""
+
+    report_date: str
+    """Report date as ISO YYYY-MM-DD."""
+
+    section: str
+    """One of: risks|opportunities|emerging|fading|watch."""
+
+    headline: str
+    """Short statement of the finding."""
+
+    body: str
+    """Mechanism and consequence."""
+
+    confidence: str
+    """'HIGH' | 'MEDIUM' | 'LOW'."""
+
+    entity_names: tuple[str, ...]
+    """Entity strings from the item, in order."""
+
+    ticker: str | None
+    """Profile ticker resolved at record time. None when no profile match."""
+
+
+@dataclass(frozen=True)
+class CallReview:
+    """A scored review of one signal call at a fixed horizon."""
+
+    call_id: int
+    """References SignalCallRow.id."""
+
+    made_on: date
+    """Report date the call was made."""
+
+    horizon_days: int
+    """Review horizon in days (7 or 30)."""
+
+    section: str
+    """Section the call appeared in."""
+
+    headline: str
+    """Headline of the original call."""
+
+    confidence: str
+    """Confidence of the original call."""
+
+    entities: tuple[str, ...]
+    """Entity strings from the original call."""
+
+    ticker: str | None
+    """Profile ticker resolved at record time. None when no profile match."""
+
+    price_change_pct: float | None
+    """Percent price change over the horizon. None when unscorable."""
+
+    mentions_since: int
+    """Observation rows mentioning the call's entities since made_on."""
+
+    sources_since: int
+    """Distinct senders mentioning the call's entities since made_on."""
+
+    sentiment_since: float
+    """Mention-weighted mean sentiment since made_on, in [-1, 1]."""
+
+    commentary: str = ""
+    """Model-written 1–2 sentence interpretation. Empty when the model fails."""
+
+
+@dataclass(frozen=True)
 class SignalsReport:
     """The periodic Signals Report — the deliverable artifact of the trend-analysis pass."""
 
@@ -425,3 +498,6 @@ class SignalsReport:
 
     observation_count: int = 0
     """Total observation count in the store at generation time."""
+
+    track_record: tuple[CallReview, ...] = field(default_factory=tuple)
+    """Reviews produced in this run, grouped by horizon. Empty when none due."""
