@@ -357,3 +357,27 @@ class TestClaudeSummarizerAllRetriesExhausted:
             summarizer.summarize(_make_email())
 
         assert mock_client.messages.create.call_count == 3
+
+def _refusal_response(category: str = "general_harms") -> MagicMock:
+    response = MagicMock()
+    response.content = []
+    response.stop_reason = "refusal"
+    response.stop_details = MagicMock(category=category)
+    return response
+
+
+class TestClaudeSummarizerRefusal:
+    """A refusal is logged and skipped — no retry, empty summary."""
+
+    def test_refusal_makes_one_call_and_returns_empty_summary(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _refusal_response()
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        result = ClaudeSummarizer(api_key="test-key").summarize(_make_email())
+
+        mock_client.messages.create.assert_called_once()
+        assert result.summary_text == ""
+        assert result.word_count == 0

@@ -24,7 +24,7 @@ from collections.abc import Sequence
 import anthropic
 
 from agent.knowledge.canonicalize import normalize_key
-from agent.utils.anthropic_text import extract_text
+from agent.utils.anthropic_text import extract_text, refusal_category
 from agent.utils.logger import get_logger
 from agent.utils.models import DigestEntry, Theme
 from agent.utils.rate_limiter import TokenBucketLimiter
@@ -197,6 +197,16 @@ class ThemeSynthesizer:
                     system=_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": user_message}],
                 )
+                refusal = refusal_category(response)
+                if refusal is not None:
+                    self._log.warning(
+                        "model_refusal",
+                        call_site="synthesis",
+                        model=self._model,
+                        category=refusal,
+                        sources=sources_ordered,
+                    )
+                    return None
                 raw = extract_text(response)
                 theme = self._parse_theme(raw, tuple(sources_ordered), tuple(cluster))
                 if theme is not None:

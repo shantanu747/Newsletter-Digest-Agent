@@ -286,3 +286,29 @@ class TestAnalyzeRetryAndDegradation:
         analyzer.analyze(_make_brief(), macro=None)
 
         assert acquire_mock.call_count == 3
+
+def _refusal_response(category: str = "general_harms") -> MagicMock:
+    response = MagicMock()
+    response.content = []
+    response.stop_reason = "refusal"
+    response.stop_details = MagicMock(category=category)
+    return response
+
+
+class TestAnalyzeRefusal:
+    def test_refusal_makes_one_call_and_returns_empty_report_with_macro(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _refusal_response()
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("time.sleep")
+        mocker.patch("agent.trends.analyzer.TokenBucketLimiter.acquire")
+
+        macro = MagicMock()
+        reviews = (_make_review(),)
+        report = _make_analyzer().analyze(_make_brief(), macro=macro, track_record=reviews)
+
+        mock_client.messages.create.assert_called_once()
+        assert report.macro is macro
+        assert report.risks == ()
+        assert report.opportunities == ()
+        assert report.track_record == reviews
