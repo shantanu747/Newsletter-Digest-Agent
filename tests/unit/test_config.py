@@ -152,10 +152,10 @@ class TestAgentConfigurationDefaults:
         cfg = AgentConfiguration()
         assert cfg.user_profile is None
 
-    def test_model_defaults_to_sonnet_5(self):
-        """model defaults to claude-sonnet-5."""
+    def test_model_defaults_to_sonnet_5_5(self):
+        """model defaults to claude-sonnet-5-5."""
         cfg = AgentConfiguration()
-        assert cfg.model == "claude-sonnet-5"
+        assert cfg.model == "claude-sonnet-5-5"
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +175,8 @@ class TestLoadConfigModel:
         "SMTP_PASSWORD": "password",
     }
 
-    def test_model_defaults_to_sonnet_5_when_key_absent(self, tmp_path):
-        """cfg.model falls back to claude-sonnet-5 when `model` is absent from YAML."""
+    def test_model_defaults_to_sonnet_5_5_when_key_absent(self, tmp_path):
+        """cfg.model falls back to claude-sonnet-5-5 when `model` is absent from YAML."""
         from agent.utils.config import load_config
         import os
 
@@ -186,7 +186,7 @@ class TestLoadConfigModel:
         with patch.dict(os.environ, self._ENV):
             cfg = load_config(str(yaml_file), profile_path=str(tmp_path / "absent.yaml"))
 
-        assert cfg.model == "claude-sonnet-5"
+        assert cfg.model == "claude-sonnet-5-5"
 
     def test_model_key_is_read_from_yaml(self, tmp_path):
         """cfg.model reflects an explicit `model` key in YAML."""
@@ -212,7 +212,7 @@ class TestLoadConfigModel:
         with patch.dict(os.environ, self._ENV):
             cfg = load_config(str(yaml_file), profile_path=str(tmp_path / "absent.yaml"))
 
-        assert cfg.model == "claude-sonnet-5"
+        assert cfg.model == "claude-sonnet-5-5"
 
 
 # ---------------------------------------------------------------------------

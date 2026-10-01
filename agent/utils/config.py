@@ -83,7 +83,7 @@ class SignalsConfig:
     max_entities_in_prompt: int = 40
     web_search_enabled: bool = False
     web_search_max_uses: int = 5
-    model: str = "claude-opus-5"
+    model: str = "claude-opus-5-5"
     track_record_enabled: bool = True
 
 
@@ -112,8 +112,8 @@ class AgentConfiguration:
     """Controls summarization output shape. 'classic' = word-count summary; 'idea_based' = discrete ideas."""
 
     # Model used for per-newsletter summarization and the daily advisor section.
-    # The Signals Report has its own `signals.model` (defaults to claude-opus-5).
-    model: str = "claude-sonnet-5"
+    # The Signals Report has its own `signals.model` (defaults to claude-opus-5-5).
+    model: str = "claude-sonnet-5-5"
 
     # Summarization
     summary_word_target: int = 225
@@ -287,7 +287,7 @@ def _parse_signals_config(raw: dict) -> SignalsConfig:
         max_entities_in_prompt=int(raw.get("max_entities_in_prompt", 40)),
         web_search_enabled=bool(raw.get("web_search_enabled", False)),
         web_search_max_uses=int(raw.get("web_search_max_uses", 5)),
-        model=str(raw.get("model", "claude-opus-5")),
+        model=str(raw.get("model", "claude-opus-5-5")),
         track_record_enabled=bool(raw.get("track_record_enabled", True)),
     )
 
@@ -362,7 +362,7 @@ def load_config(yaml_path: str = "config/newsletters.yaml", profile_path: str = 
         batch_size=batch_size,
         max_newsletters_per_run=int(raw.get("max_newsletters_per_run", 20)),
         digest_format=digest_format,
-        model=str(raw.get("model") or "claude-sonnet-5"),
+        model=str(raw.get("model") or "claude-sonnet-5-5"),
         summary_word_target=int(raw.get("summary_word_target", 225)),
         summary_length_mode=str(raw.get("summary_length_mode", "fixed")),
         summary_percentage=int(raw.get("summary_percentage", 18)),

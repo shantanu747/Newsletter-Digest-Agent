@@ -322,7 +322,7 @@ class TestRecurringContextBlock:
 
 class TestAdvisorModelAndRateLimiting:
 
-    def test_default_model_is_sonnet_5(self, mocker):
+    def test_default_model_is_sonnet_5_5(self, mocker):
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response("No implications.")
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
@@ -332,7 +332,7 @@ class TestAdvisorModelAndRateLimiting:
         analyzer.analyze([_make_summary("test", "test")])
 
         call_kwargs = mock_client.messages.create.call_args
-        assert call_kwargs.kwargs.get("model") == "claude-sonnet-5"
+        assert call_kwargs.kwargs.get("model") == "claude-sonnet-5-5"
 
     def test_model_kwarg_overrides_default(self, mocker):
         mock_client = MagicMock()

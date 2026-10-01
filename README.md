@@ -73,7 +73,7 @@ Reading newsletters takes time. This agent solves that by running on a daily sch
 |---|---|---|
 | Gmail fetching | `google-api-python-client` + OAuth 2.0 | Official, reliable, quota-managed |
 | HTML parsing | `beautifulsoup4` + `html2text` | Industry standard for content extraction |
-| AI summarization | `anthropic` SDK | Claude Sonnet 5 (configurable via `model`) — best cost/quality tradeoff for summarization |
+| AI summarization | `anthropic` SDK | Claude Sonnet 5.5 (configurable via `model`) — best cost/quality tradeoff for summarization |
 | Email delivery | `smtplib` (stdlib) or SendGrid | SMTP for simplicity; SendGrid for reliability at scale |
 | Scheduling | `APScheduler` | Lightweight in-process scheduler; easy cron-like syntax |
 | Config management | `PyYAML` + `python-dotenv` | Secrets in `.env`, non-secret config in `config.yaml` |
@@ -302,7 +302,7 @@ signals:
   max_entities_in_prompt: 40
   web_search_enabled: false
   web_search_max_uses: 5
-  model: "claude-opus-5"
+  model: "claude-opus-5-5"
   track_record_enabled: true  # score past calls at 7/30-day horizons (prices via Stooq, free/unauthenticated)
 ```
 
@@ -368,7 +368,7 @@ newsletter-digest-agent/
 | `max_newsletters_per_run` | int | `20` | Cap to avoid hitting API rate limits |
 | `summary_word_target` | int | `225` | Target word count per summary |
 | `digest_format` | str | `"classic"` | `"classic"` (word-count summary) or `"idea_based"` (discrete ideas) |
-| `model` | str | `claude-sonnet-5` | Claude model for per-newsletter summaries and the daily advisor section; the periodic Signals Report uses the separate `signals.model` key instead |
+| `model` | str | `claude-sonnet-5-5` | Claude model for per-newsletter summaries and the daily advisor section; the periodic Signals Report uses the separate `signals.model` key instead |
 
 ### Knowledge Graph (Signals Report & Theme Synthesis)
 | Key | Type | Default | Description |
@@ -390,7 +390,7 @@ newsletter-digest-agent/
 | `signals.max_entities_in_prompt` | int | `40` | Prompt size cap |
 | `signals.web_search_enabled` | bool | `false` | Enable web search corroboration |
 | `signals.web_search_max_uses` | int | `5` | Max web search calls per report |
-| `signals.model` | str | `"claude-opus-5"` | Model for trend analysis |
+| `signals.model` | str | `"claude-opus-5-5"` | Model for trend analysis |
 | `signals.track_record_enabled` | bool | `true` | Score past calls at 7/30-day horizons in the Track Record section |
 
 ### Macroeconomic Dashboard

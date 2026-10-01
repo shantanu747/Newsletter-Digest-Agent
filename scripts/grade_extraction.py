@@ -119,7 +119,7 @@ def main() -> None:
         )
 
         response = client.messages.create(
-            model="claude-sonnet-5",
+            model="claude-sonnet-5-5",
             max_tokens=2048,
             output_config={"effort": "low"},
             messages=[{"role": "user", "content": prompt}],

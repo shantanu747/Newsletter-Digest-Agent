@@ -17,7 +17,7 @@ from agent.utils.logger import get_logger
 from agent.utils.models import Email, EntityMention, Idea, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
-_DEFAULT_MODEL = "claude-sonnet-5"
+_DEFAULT_MODEL = "claude-sonnet-5-5"
 _SUMMARY_MAX_TOKENS = 2048       # was 1024; adaptive thinking shares this budget
 _IDEAS_MAX_TOKENS = 4096         # was 2048
 _OUTPUT_CONFIG = {"effort": "low"}  # extraction work — keep thinking short
@@ -162,7 +162,7 @@ def _parse_ideas(raw: str) -> tuple[Idea, ...]:
 
 
 class ClaudeSummarizer:
-    """Summarizes newsletter emails with the configured Claude model (default claude-sonnet-5)."""
+    """Summarizes newsletter emails with the configured Claude model (default claude-sonnet-5-5)."""
 
     def __init__(
         self,

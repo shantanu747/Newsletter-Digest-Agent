@@ -1,6 +1,6 @@
 """Helpers for reading Anthropic Messages responses.
 
-Sonnet 5 / Opus 5 may return thinking blocks before the text block, and server-side tool
+Sonnet 5.5 / Opus 5.5 may return thinking blocks before the text block, and server-side tool
 blocks can also precede it, so callers must never index ``response.content[0]``.
 """
 

@@ -22,7 +22,7 @@ from agent.utils.logger import get_logger
 from agent.utils.models import AdvisorAnalysis, EntityContext, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
-_DEFAULT_MODEL = "claude-sonnet-5"
+_DEFAULT_MODEL = "claude-sonnet-5-5"
 _MAX_TOKENS = 2400  # was 1200; adaptive thinking shares this budget
 _OUTPUT_CONFIG = {"effort": "low"}  # extraction/synthesis work — keep thinking short
 
