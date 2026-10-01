@@ -1,6 +1,11 @@
 """Pytest fixtures shared across the test suite."""
 
+import os
+import tempfile
 from datetime import datetime, timezone
+
+# Must run before agent.utils.logger is first imported, so the suite never writes to the real logs/.
+os.environ.setdefault("NEWSLETTER_LOG_DIR", tempfile.mkdtemp(prefix="newsletter-test-logs-"))
 
 import pytest
 
