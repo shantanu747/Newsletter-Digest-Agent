@@ -181,6 +181,11 @@ class TestTrackRecordCommentary:
         system_prompt_empty = mock_client_empty.messages.create.call_args.kwargs["system"]
         assert "TRACK RECORD" not in system_prompt_empty
 
+    def test_analyze_sends_medium_effort(self, mocker):
+        _, mock_client = _analyze_with_mock(mocker, "---RISKS---\n")
+        call_kwargs = mock_client.messages.create.call_args
+        assert call_kwargs.kwargs["output_config"] == {"effort": "medium"}
+
     def test_commentary_attached_to_right_review(self, mocker):
         raw = (
             "---RISKS---\n"

@@ -27,6 +27,9 @@ from agent.utils.models import CallReview, MacroSnapshot, SignalItem, SignalsRep
 from agent.utils.rate_limiter import TokenBucketLimiter
 from collections.abc import Sequence
 
+# Opus 5.5 defaults to medium effort; pinned so the choice is visible. Thinking shares max_tokens.
+_OUTPUT_CONFIG = {"effort": "medium"}
+
 _SECTION_DELIMITERS = (
     ("risks", "---RISKS---"),
     ("opportunities", "---OPPORTUNITIES---"),
@@ -284,6 +287,7 @@ class TrendAnalyzer:
                 response = self._client.messages.create(
                     model=self._config.model,
                     max_tokens=3000,
+                    output_config=_OUTPUT_CONFIG,
                     system=system_prompt,
                     messages=[{"role": "user", "content": "Interpret the brief above."}],
                 )
