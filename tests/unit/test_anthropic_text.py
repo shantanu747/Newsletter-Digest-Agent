@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from agent.utils.anthropic_text import extract_text
+from agent.utils.anthropic_text import extract_text, refusal_category
 
 
 def _response(*blocks) -> MagicMock:
@@ -46,3 +46,25 @@ def test_no_text_blocks_returns_empty_string():
 def test_block_without_type_attribute_is_ignored():
     bare = MagicMock()
     assert extract_text(_response(bare)) == ""
+
+
+def test_refusal_category_none_for_end_turn():
+    assert refusal_category(MagicMock(stop_reason="end_turn")) is None
+
+
+def test_refusal_category_returns_category_on_refusal():
+    response = MagicMock(stop_reason="refusal", stop_details=MagicMock(category="cyber"))
+    assert refusal_category(response) == "cyber"
+
+
+def test_refusal_category_empty_string_when_stop_details_none():
+    assert refusal_category(MagicMock(stop_reason="refusal", stop_details=None)) == ""
+
+
+def test_refusal_category_empty_string_when_category_none():
+    response = MagicMock(stop_reason="refusal", stop_details=MagicMock(category=None))
+    assert refusal_category(response) == ""
+
+
+def test_refusal_category_none_when_stop_reason_missing():
+    assert refusal_category(object()) is None

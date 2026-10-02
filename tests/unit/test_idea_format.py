@@ -180,3 +180,26 @@ class TestSummarizeAsIdeas:
 
         assert len(result.ideas) == 1
         assert result.ideas[0].title == "Off-Topic Idea"
+
+def _refusal_response(category: str = "general_harms") -> MagicMock:
+    response = MagicMock()
+    response.content = []
+    response.stop_reason = "refusal"
+    response.stop_details = MagicMock(category=category)
+    return response
+
+
+class TestSummarizeAsIdeasRefusal:
+    def test_refusal_makes_one_call_and_returns_no_ideas(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _refusal_response("cyber")
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+
+        from agent.summarizer.claude_summarizer import ClaudeSummarizer
+
+        result = ClaudeSummarizer(api_key="test-key").summarize_as_ideas(
+            _make_email(), user_profile=None
+        )
+
+        mock_client.messages.create.assert_called_once()
+        assert [i.title for i in result.ideas] == ["Content Unavailable"]

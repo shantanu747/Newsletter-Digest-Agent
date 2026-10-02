@@ -25,7 +25,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from agent.parsers.email_parser import EmailParser
-from agent.utils.anthropic_text import extract_text
+from agent.utils.anthropic_text import extract_text, refusal_category
 from agent.utils.eml_loader import load_eml
 
 load_dotenv()
@@ -119,12 +119,17 @@ def main() -> None:
         )
 
         response = client.messages.create(
-            model="claude-sonnet-5",
+            model="claude-sonnet-5-5",
             max_tokens=2048,
             output_config={"effort": "low"},
             messages=[{"role": "user", "content": prompt}],
         )
-        grade_text = extract_text(response)
+        refusal = refusal_category(response)
+        if refusal is not None:
+            grade_text = f"(model refused: {refusal})"
+            print(f"  model_refusal: {eml_path.name} category={refusal!r}", flush=True)
+        else:
+            grade_text = extract_text(response)
 
         report_lines += [
             f"## {eml_path.stem}\n",

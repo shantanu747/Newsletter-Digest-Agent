@@ -297,6 +297,25 @@ class TestThemeSynthesizer:
         mocker.patch("time.sleep")
         return mock_client
 
+    def test_refusal_makes_one_call_and_yields_no_theme(self, mocker):
+        mock_client = self._setup_mock_response(mocker, "")
+        refusal = MagicMock(content=[], stop_reason="refusal")
+        refusal.stop_details = MagicMock(category="general_harms")
+        mock_client.messages.create.return_value = refusal
+
+        e1 = EntityMention(name="Nvidia", entity_type="company", sentiment="negative")
+        e2 = EntityMention(name="export controls", entity_type="policy", sentiment="negative")
+        entries = [
+            _make_entry("msg-1", "a@x.com", "Bloomberg", [_make_idea("Idea 1", "x", [e1, e2])]),
+            _make_entry("msg-2", "b@x.com", "AI Journal", [_make_idea("Idea 2", "y", [e1, e2])]),
+        ]
+        clusters = [[("msg-1", 0), ("msg-2", 0)]]
+
+        themes = synthesize_themes(clusters, entries, "test-key", model="claude-test")
+
+        mock_client.messages.create.assert_called_once()
+        assert themes == ()
+
     def test_well_formed_response_becomes_theme_with_all_sources(self, mocker):
         """Valid TITLE/BODY/DISAGREEMENT response creates Theme with all sources."""
         response = (

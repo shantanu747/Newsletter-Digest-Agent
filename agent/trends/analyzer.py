@@ -20,12 +20,15 @@ from datetime import datetime, timezone
 
 import anthropic
 
-from agent.utils.anthropic_text import extract_text
+from agent.utils.anthropic_text import extract_text, refusal_category
 from agent.utils.config import SignalsConfig, UserProfile
 from agent.utils.logger import get_logger
 from agent.utils.models import CallReview, MacroSnapshot, SignalItem, SignalsReport, TrendBrief
 from agent.utils.rate_limiter import TokenBucketLimiter
 from collections.abc import Sequence
+
+# Opus 5.5 defaults to medium effort; pinned so the choice is visible. Thinking shares max_tokens.
+_OUTPUT_CONFIG = {"effort": "medium"}
 
 _SECTION_DELIMITERS = (
     ("risks", "---RISKS---"),
@@ -278,15 +281,28 @@ class TrendAnalyzer:
         track_record = tuple(track_record)
 
         last_exc = None
+        refused = False
         for attempt in range(3):
             try:
                 self._limiter.acquire()
                 response = self._client.messages.create(
                     model=self._config.model,
                     max_tokens=3000,
+                    output_config=_OUTPUT_CONFIG,
                     system=system_prompt,
                     messages=[{"role": "user", "content": "Interpret the brief above."}],
                 )
+                refusal = refusal_category(response)
+                if refusal is not None:
+                    # Retrying the same request on the same model would just burn tokens.
+                    self._log.warning(
+                        "model_refusal",
+                        call_site="trend",
+                        model=self._config.model,
+                        category=refusal,
+                    )
+                    refused = True
+                    break
                 raw_text = extract_text(response)
                 sections = _parse_response(raw_text, brief)
                 commentary = _parse_track_record_commentary(raw_text, track_record, self._log)
@@ -344,11 +360,12 @@ class TrendAnalyzer:
                 )
                 time.sleep(wait)
 
-        self._log.error(
-            "trend_analysis_failed",
-            error=str(last_exc),
-            message="Trend analysis failed after 3 attempts — report will carry no signals.",
-        )
+        if not refused:
+            self._log.error(
+                "trend_analysis_failed",
+                error=str(last_exc),
+                message="Trend analysis failed after 3 attempts — report will carry no signals.",
+            )
         return SignalsReport(
             generated_at=datetime.now(timezone.utc),
             window_days=brief.window_days,

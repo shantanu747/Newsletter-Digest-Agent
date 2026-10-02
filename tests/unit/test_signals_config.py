@@ -72,7 +72,7 @@ class TestParseSignalsConfig:
         assert cfg.max_entities_in_prompt == 40
         assert cfg.web_search_enabled is False
         assert cfg.web_search_max_uses == 5
-        assert cfg.model == "claude-opus-5"
+        assert cfg.model == "claude-opus-5-5"
 
     def test_unknown_key_raises(self):
         with pytest.raises(ConfigurationError, match="Unknown key"):

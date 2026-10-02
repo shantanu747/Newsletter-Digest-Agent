@@ -1,6 +1,6 @@
 """Helpers for reading Anthropic Messages responses.
 
-Sonnet 5 / Opus 5 may return thinking blocks before the text block, and server-side tool
+Sonnet 5.5 / Opus 5.5 may return thinking blocks before the text block, and server-side tool
 blocks can also precede it, so callers must never index ``response.content[0]``.
 """
 
@@ -17,3 +17,14 @@ def extract_text(response) -> str:
         if getattr(block, "type", None) == "text":
             parts.append(block.text)
     return "".join(parts).strip()
+
+
+def refusal_category(response) -> str | None:
+    """Return the refusal category ("" if unknown) when ``stop_reason == "refusal"``, else None.
+
+    ``stop_details`` can be None and its ``category`` can be None; neither raises.
+    """
+    if getattr(response, "stop_reason", None) != "refusal":
+        return None
+    category = getattr(getattr(response, "stop_details", None), "category", None)
+    return category if isinstance(category, str) else ""

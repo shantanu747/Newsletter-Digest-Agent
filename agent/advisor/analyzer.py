@@ -16,13 +16,13 @@ import anthropic
 from collections.abc import Mapping
 
 from agent.knowledge.context import recurring_lines
-from agent.utils.anthropic_text import extract_text
+from agent.utils.anthropic_text import extract_text, refusal_category
 from agent.utils.config import UserProfile
 from agent.utils.logger import get_logger
 from agent.utils.models import AdvisorAnalysis, EntityContext, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
-_DEFAULT_MODEL = "claude-sonnet-5"
+_DEFAULT_MODEL = "claude-sonnet-5-5"
 _MAX_TOKENS = 2400  # was 1200; adaptive thinking shares this budget
 _OUTPUT_CONFIG = {"effort": "low"}  # extraction/synthesis work — keep thinking short
 
@@ -174,6 +174,16 @@ class AdvisorAnalyzer:
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_message}],
                 )
+                refusal = refusal_category(response)
+                if refusal is not None:
+                    self._log.warning(
+                        "model_refusal",
+                        call_site="advisor",
+                        model=self._model,
+                        category=refusal,
+                        newsletter_count=len(summaries),
+                    )
+                    return AdvisorAnalysis(relevance_text=None, signals_text=None)
                 raw_text = extract_text(response).replace("**", "")
                 analysis = self._parse_response(raw_text)
                 self._log.info(

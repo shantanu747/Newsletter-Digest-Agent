@@ -11,13 +11,13 @@ from datetime import datetime, timezone
 
 import anthropic
 
-from agent.utils.anthropic_text import extract_text
+from agent.utils.anthropic_text import extract_text, refusal_category
 from agent.utils.exceptions import SummarizationError
 from agent.utils.logger import get_logger
 from agent.utils.models import Email, EntityMention, Idea, Summary
 from agent.utils.rate_limiter import TokenBucketLimiter
 
-_DEFAULT_MODEL = "claude-sonnet-5"
+_DEFAULT_MODEL = "claude-sonnet-5-5"
 _SUMMARY_MAX_TOKENS = 2048       # was 1024; adaptive thinking shares this budget
 _IDEAS_MAX_TOKENS = 4096         # was 2048
 _OUTPUT_CONFIG = {"effort": "low"}  # extraction work — keep thinking short
@@ -162,7 +162,7 @@ def _parse_ideas(raw: str) -> tuple[Idea, ...]:
 
 
 class ClaudeSummarizer:
-    """Summarizes newsletter emails with the configured Claude model (default claude-sonnet-5)."""
+    """Summarizes newsletter emails with the configured Claude model (default claude-sonnet-5-5)."""
 
     def __init__(
         self,
@@ -251,6 +251,15 @@ class ClaudeSummarizer:
                     messages=[{"role": "user", "content": user_content}],
                 )
                 stop_reason = getattr(response, "stop_reason", None)
+                refusal = refusal_category(response)
+                if refusal is not None:
+                    self._log.warning(
+                        "model_refusal",
+                        call_site="summarize",
+                        model=self._model,
+                        category=refusal,
+                        message_id=email.id,
+                    )
                 text = extract_text(response).replace("**", "")
                 word_count = len(text.split())
                 self._log.info(
@@ -335,6 +344,15 @@ class ClaudeSummarizer:
                     messages=[{"role": "user", "content": user_content}],
                 )
                 stop_reason = getattr(response, "stop_reason", None)
+                refusal = refusal_category(response)
+                if refusal is not None:
+                    self._log.warning(
+                        "model_refusal",
+                        call_site="ideas",
+                        model=self._model,
+                        category=refusal,
+                        newsletter_id=email.id,
+                    )
                 raw = extract_text(response)
                 ideas = _parse_ideas(raw)
                 self._log.info(

@@ -322,7 +322,7 @@ class TestRecurringContextBlock:
 
 class TestAdvisorModelAndRateLimiting:
 
-    def test_default_model_is_sonnet_5(self, mocker):
+    def test_default_model_is_sonnet_5_5(self, mocker):
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response("No implications.")
         mocker.patch("anthropic.Anthropic", return_value=mock_client)
@@ -332,7 +332,7 @@ class TestAdvisorModelAndRateLimiting:
         analyzer.analyze([_make_summary("test", "test")])
 
         call_kwargs = mock_client.messages.create.call_args
-        assert call_kwargs.kwargs.get("model") == "claude-sonnet-5"
+        assert call_kwargs.kwargs.get("model") == "claude-sonnet-5-5"
 
     def test_model_kwarg_overrides_default(self, mocker):
         mock_client = MagicMock()
@@ -384,3 +384,25 @@ class TestAdvisorModelAndRateLimiting:
         assert "UAL" in result.relevance_text
         assert result.signals_text is not None
         assert "XOM" in result.signals_text
+
+def _refusal_response(category: str = "general_harms") -> MagicMock:
+    response = MagicMock()
+    response.content = []
+    response.stop_reason = "refusal"
+    response.stop_details = MagicMock(category=category)
+    return response
+
+
+class TestAdvisorRefusal:
+    def test_refusal_makes_one_call_and_returns_empty_analysis(self, mocker):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _refusal_response()
+        mocker.patch("anthropic.Anthropic", return_value=mock_client)
+        mocker.patch("agent.advisor.analyzer.TokenBucketLimiter.acquire")
+        mocker.patch("time.sleep")
+
+        result = _make_analyzer().analyze([_make_summary("test", "test")])
+
+        mock_client.messages.create.assert_called_once()
+        assert result.relevance_text is None
+        assert result.signals_text is None
