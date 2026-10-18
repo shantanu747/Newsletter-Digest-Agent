@@ -84,6 +84,45 @@ class TestMarkAsRead:
         fetcher.mark_as_read("msg-123")
 
 
+class TestMutationTransportErrors:
+    """A stale connection after delivery must be retried, and never crash the run."""
+
+    def _fetcher(self, side_effect=None):
+        from agent.fetchers.gmail_fetcher import GmailFetcher
+
+        fetcher = GmailFetcher()
+        fetcher._service = MagicMock()
+        if side_effect is not None:
+            fetcher._service.users().messages().modify().execute.side_effect = side_effect
+        return fetcher
+
+    @pytest.mark.parametrize("method", ["mark_as_read", "move_to_trash"])
+    def test_execute_is_retried(self, method):
+        from agent.fetchers.gmail_fetcher import _MUTATION_RETRIES
+
+        fetcher = self._fetcher()
+        getattr(fetcher, method)("msg-1")
+        fetcher._service.users().messages().modify().execute.assert_called_with(
+            num_retries=_MUTATION_RETRIES
+        )
+
+    @pytest.mark.parametrize("method", ["mark_as_read", "move_to_trash"])
+    @pytest.mark.parametrize(
+        "exc",
+        [TimeoutError("The read operation timed out"), BrokenPipeError(32, "Broken pipe"),
+         ConnectionResetError(54, "Connection reset by peer")],
+    )
+    def test_transport_error_does_not_raise(self, method, exc):
+        fetcher = self._fetcher(side_effect=exc)
+        getattr(fetcher, method)("msg-1")  # must not raise
+
+    def test_httplib2_error_does_not_raise(self):
+        import httplib2
+
+        fetcher = self._fetcher(side_effect=httplib2.ServerNotFoundError("no dns"))
+        fetcher.mark_as_read("msg-1")
+
+
 # ---------------------------------------------------------------------------
 # GmailFetcher.move_to_trash tests
 # ---------------------------------------------------------------------------

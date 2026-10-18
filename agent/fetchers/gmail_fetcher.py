@@ -12,6 +12,7 @@ import google.auth.transport.requests
 import google.oauth2.credentials
 import googleapiclient.discovery
 import googleapiclient.errors
+import httplib2
 
 from agent.fetchers.base_fetcher import BaseFetcher
 from agent.utils.config import AgentConfiguration
@@ -20,6 +21,12 @@ from agent.utils.logger import get_logger
 from agent.utils.models import Email
 
 _SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+
+# Retries for post-delivery label changes. The digest has already been sent by then,
+# and the Gmail connection is often stale (e.g. the Mac slept mid-run), so a timeout or
+# reset is retried on a fresh connection rather than crashing the run and leaving the
+# emails unread to be re-summarized next time.
+_MUTATION_RETRIES = 3
 
 log = get_logger(__name__)
 
@@ -166,9 +173,9 @@ class GmailFetcher(BaseFetcher):
                 userId="me",
                 id=message_id,
                 body={"removeLabelIds": ["UNREAD"]},
-            ).execute()
+            ).execute(num_retries=_MUTATION_RETRIES)
             log.debug("message_marked_read", message_id=message_id)
-        except googleapiclient.errors.HttpError as exc:
+        except (googleapiclient.errors.HttpError, OSError, httplib2.HttpLib2Error) as exc:
             log.warning("mark_as_read_failed", message_id=message_id, error=str(exc))
 
     def move_to_trash(self, message_id: str) -> None:
@@ -185,9 +192,9 @@ class GmailFetcher(BaseFetcher):
                 userId="me",
                 id=message_id,
                 body={"addLabelIds": ["TRASH"]},
-            ).execute()
+            ).execute(num_retries=_MUTATION_RETRIES)
             log.debug("message_moved_to_trash", message_id=message_id)
-        except googleapiclient.errors.HttpError as exc:
+        except (googleapiclient.errors.HttpError, OSError, httplib2.HttpLib2Error) as exc:
             log.warning("move_to_trash_failed", message_id=message_id, error=str(exc))
 
     # ------------------------------------------------------------------
