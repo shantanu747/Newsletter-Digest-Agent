@@ -90,6 +90,17 @@ class TestDigestScheduler:
 
         mock_log.info.assert_called_once_with("scheduled_run_started")
 
+    def test_run_agent_skips_when_lock_held(self, mock_config, mocker):
+        """A scheduled tick must not overlap a run already in progress elsewhere."""
+        from agent.utils.run_lock import single_instance
+
+        mock_run = mocker.patch("agent.runner.NewsletterAgent.run")
+        scheduler = DigestScheduler(mock_config)
+        with single_instance():
+            scheduler._run_agent()
+
+        mock_run.assert_not_called()
+
     def test_scheduler_initialized_with_timezone(self, mock_config, mocker):
         mock_scheduler_cls = mocker.patch("agent.scheduler.BlockingScheduler")
         DigestScheduler(mock_config)

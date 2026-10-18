@@ -14,6 +14,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from agent.utils.config import AgentConfiguration, load_config
 from agent.utils.exceptions import ConfigurationError, DeliveryError, FetchError, SummarizationError
 from agent.utils.logger import get_logger
+from agent.utils.run_lock import single_instance
 
 log = get_logger(__name__)
 
@@ -29,11 +30,14 @@ class DigestScheduler:
         """Job function — catch known pipeline errors so the scheduler survives transient
         failures, but let unexpected exceptions propagate so bugs are not silently swallowed."""
         from agent.runner import NewsletterAgent
-        try:
-            log.info("scheduled_run_started")
-            NewsletterAgent(config=self.config).run()
-        except (FetchError, SummarizationError, DeliveryError) as exc:
-            log.error("scheduled_run_failed", error=str(exc))
+        with single_instance() as acquired:
+            if not acquired:
+                return
+            try:
+                log.info("scheduled_run_started")
+                NewsletterAgent(config=self.config).run()
+            except (FetchError, SummarizationError, DeliveryError) as exc:
+                log.error("scheduled_run_failed", error=str(exc))
 
     def start(self) -> None:
         """Run once immediately, then start the blocking interval scheduler.

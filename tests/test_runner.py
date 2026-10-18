@@ -162,6 +162,34 @@ class TestMainSchedulerRouting:
         mock_run.assert_called_once()
         mock_scheduler.assert_not_called()
 
+    def test_once_skips_run_when_lock_held(self, mocker):
+        """A second --once process must exit cleanly without running the pipeline."""
+        from agent.utils.run_lock import single_instance
+
+        self._call_main(mocker, ["--once"])
+        mock_run = mocker.patch("agent.runner.NewsletterAgent.run")
+        mock_init = mocker.patch("agent.runner.NewsletterAgent.__init__", return_value=None)
+
+        from agent.runner import main
+        with single_instance():
+            main()  # returns normally (exit 0), so launchd won't respawn it
+
+        mock_init.assert_not_called()
+        mock_run.assert_not_called()
+
+    def test_signals_skips_when_lock_held(self, mocker):
+        from agent.utils.run_lock import single_instance
+
+        self._call_main(mocker, ["--signals"])
+        mock_signals = mocker.patch("agent.runner.NewsletterAgent.maybe_run_signals")
+        mocker.patch("agent.runner.NewsletterAgent.__init__", return_value=None)
+
+        from agent.runner import main
+        with single_instance():
+            main()
+
+        mock_signals.assert_not_called()
+
     def test_no_flags_starts_scheduler(self, mocker):
         """No flags must start DigestScheduler instead of a direct run."""
         self._call_main(mocker, [])

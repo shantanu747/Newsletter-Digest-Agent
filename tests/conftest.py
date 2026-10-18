@@ -6,6 +6,11 @@ from datetime import datetime, timezone
 
 # Must run before agent.utils.logger is first imported, so the suite never writes to the real logs/.
 os.environ.setdefault("NEWSLETTER_LOG_DIR", tempfile.mkdtemp(prefix="newsletter-test-logs-"))
+# Keep the run lock out of the real data/ dir, and away from a live launchd run.
+os.environ.setdefault(
+    "NEWSLETTER_LOCK_PATH",
+    os.path.join(tempfile.mkdtemp(prefix="newsletter-test-lock-"), "agent.lock"),
+)
 
 import pytest
 

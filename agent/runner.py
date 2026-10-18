@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from agent.utils.config import AgentConfiguration, load_config
 from agent.utils.exceptions import ConfigurationError, FetchError, SummarizationError, DeliveryError
 from agent.utils.logger import get_logger
+from agent.utils.run_lock import single_instance
 from agent.utils.models import DigestBatch, DigestEntry, SenderConfig, Theme
 from agent.trends.synthesis import cluster_ideas, ThemeSynthesizer
 from agent.fetchers.gmail_fetcher import GmailFetcher
@@ -440,22 +441,30 @@ def main() -> None:
         sys.exit(1)
 
     if args.signals or args.signals_dry_run:
-        agent = NewsletterAgent(config=config)
-        agent.maybe_run_signals(datetime.now(timezone.utc), force=True, dry_run=args.signals_dry_run)
+        with single_instance() as acquired:
+            if not acquired:
+                return
+            agent = NewsletterAgent(config=config)
+            agent.maybe_run_signals(datetime.now(timezone.utc), force=True, dry_run=args.signals_dry_run)
         return
 
     if args.once or args.dry_run or args.preview:
-        agent = NewsletterAgent(
-            config=config,
-            dry_run=args.dry_run,
-            preview=args.preview,
-            skip_signals=args.skip_signals,
-        )
-        try:
-            agent.run()
-        except FetchError as exc:
-            log.error("fatal_error", error=str(exc))
-            sys.exit(1)
+        # Exit 0 when another run holds the lock, so launchd doesn't treat the skip as a
+        # failure and respawn it.
+        with single_instance() as acquired:
+            if not acquired:
+                return
+            agent = NewsletterAgent(
+                config=config,
+                dry_run=args.dry_run,
+                preview=args.preview,
+                skip_signals=args.skip_signals,
+            )
+            try:
+                agent.run()
+            except FetchError as exc:
+                log.error("fatal_error", error=str(exc))
+                sys.exit(1)
     else:
         from agent.scheduler import DigestScheduler
         DigestScheduler(config=config).start()
